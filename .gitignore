@@ -1,0 +1,80 @@
+# =============================================================================
+# .gitignore — SONGRE Flutter App
+# Standard Flutter + exclusions secrets/environnement
+# =============================================================================
+
+# ── Flutter/Dart ────────────────────────────────────────────────────────────
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.g.dart          # generated
+*.freezed.dart    # generated
+coverage/
+
+# ── Android ─────────────────────────────────────────────────────────────────
+android/.gradle/
+android/local.properties
+android/captures/
+android/key.properties
+android/app/google-services.json
+android/app/*.keystore
+android/app/*.jks
+**/AndroidManifest.xml.bak
+
+# ── iOS ─────────────────────────────────────────────────────────────────────
+ios/Pods/
+ios/Flutter/Flutter.podspec
+ios/.symlinks/
+ios/Runner.xcworkspace/xcshareddata/
+ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/
+ios/GoogleService-Info.plist
+
+# ── Secrets et variables d'environnement ────────────────────────────────────
+.env
+.env.*
+*.env
+.envrc
+secrets/
+secret.json
+service-account*.json
+firebase-adminsdk*.json
+*-service-account.json
+google-services.json
+GoogleService-Info.plist
+supabase/.env
+supabase/functions/**/.env
+
+# ── Supabase local dev ───────────────────────────────────────────────────────
+supabase/.branches/
+supabase/.temp/
+
+# ── IDE ─────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+*.iml
+*.ipr
+*.iws
+.DS_Store
+Thumbs.db
+
+# ── Logs ────────────────────────────────────────────────────────────────────
+*.log
+flutter.log
+flutter2.log
+server.log
+
+# ── Dépendances publiées ─────────────────────────────────────────────────────
+# pubspec.lock est intentionnellement conservé (reproductibilité des builds)
+# /pubspec.lock
+
+# ── Test coverage ────────────────────────────────────────────────────────────
+coverage/
+lcov.info
+
+# ── Archives build Android ──────────────────────────────────────────────────
+*.apk
+*.aab
+*.ipa

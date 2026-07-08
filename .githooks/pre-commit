@@ -1,0 +1,137 @@
+#!/usr/bin/bash
+# =============================================================================
+# .githooks/pre-commit — SONGRE : détection de secrets avant commit
+#
+# Installation (une seule fois) :
+#   git config core.hooksPath .githooks
+#   chmod +x .githooks/pre-commit
+#
+# Ce hook bloque le commit si des patterns de secrets connus sont détectés
+# dans les fichiers stagés. Il vérifie :
+#   - Clés AES hardcodées (SauveDevKey, NON_PROD)
+#   - URLs Supabase réelles avec clés anon/service_role inline
+#   - Clés API génériques (sk_, eyJ..., AIza)
+#   - Tokens Firebase / FCM
+#   - Clés Resend / Brevo
+#   - Variables d'env en dur dans le code Dart
+#
+# NOTE : shebang fixé à /usr/bin/bash (absolu) pour éviter que git
+# n'exécute le hook via /bin/sh (dash), qui ne supporte pas les tableaux.
+# =============================================================================
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+RESET='\033[0m'
+
+printf "${YELLOW}[pre-commit] Analyse des secrets dans les fichiers stagés...${RESET}\n"
+
+# Fichiers stagés (ajoutés, modifiés, renommés) — exclut les suppressions
+STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
+
+if [ -z "$STAGED" ]; then
+  printf "${GREEN}[pre-commit] Aucun fichier stagé. OK.${RESET}\n"
+  exit 0
+fi
+
+FOUND=0
+
+# ── Fonction utilitaire ───────────────────────────────────────────────────────
+# Vérifie un pattern dans tous les fichiers stagés.
+# Usage: check_pattern "DESCRIPTION" "REGEX"
+check_pattern() {
+  local description="$1"
+  local pattern="$2"
+
+  while IFS= read -r file; do
+    [ -f "$file" ] || continue
+
+    # Ignorer ce hook lui-même et les fichiers de documentation
+    case "$file" in
+      .githooks/*|*.md|CHANGELOG*|LICENSE*) continue ;;
+    esac
+
+    # Utiliser `grep -E -- pattern` pour éviter que le pattern soit interprété
+    # comme une option grep (ex: pattern commençant par --)
+    if git show ":$file" 2>/dev/null | grep -qE -- "$pattern" 2>/dev/null; then
+      printf "${RED}[BLOQUÉ] Secret détecté dans %s${RESET}\n" "$file"
+      printf "  ${YELLOW}→ Règle  : %s${RESET}\n" "$description"
+      printf "  ${YELLOW}→ Pattern: %s${RESET}\n" "$pattern"
+      FOUND=$((FOUND + 1))
+    fi
+  done <<< "$STAGED"
+}
+
+# ── Patterns à bloquer ────────────────────────────────────────────────────────
+# Chaque appel = un pattern indépendant (POSIX-compatible, pas de tableaux bash)
+
+check_pattern \
+  "Clé AES hardcodée (SauveDevKey)" \
+  "SauveDevKey"
+
+check_pattern \
+  "Marqueur non-prod hardcodé" \
+  "NON_PROD_32chars"
+
+check_pattern \
+  "Clé Supabase anon inline (eyJ…30+ chars)" \
+  "eyJ[a-zA-Z0-9_-]{30,}"
+
+check_pattern \
+  "Clé FCM server key (AAAA…)" \
+  "AAAA[a-zA-Z0-9_-]{100,}"
+
+check_pattern \
+  "Clé API Resend (re_…)" \
+  "re_[a-zA-Z0-9]{20,}"
+
+check_pattern \
+  "Clé Google/Firebase (AIza…)" \
+  "AIza[0-9A-Za-z_-]{35}"
+
+check_pattern \
+  "Secret générique (sk_ prefix)" \
+  "sk_[a-zA-Z0-9]{20,}"
+
+check_pattern \
+  "Token Bearer hardcodé" \
+  "Bearer [a-zA-Z0-9._-]{40,}"
+
+check_pattern \
+  "URL Supabase avec clé inline" \
+  "supabase[.]co.*apikey=[a-zA-Z0-9._-]{20,}"
+
+check_pattern \
+  "Clé Brevo / Sendinblue" \
+  "xkeysib-[a-zA-Z0-9_-]{60,}"
+
+check_pattern \
+  "Mot de passe hardcodé (patterns courants)" \
+  "[Pp]assword[[:space:]]*=[[:space:]]*['\"][^'\"]{8,}['\"]"
+
+# ── Vérification spécifique : defaultValue non vide dans crypto_service ───────
+# On cherche String.fromEnvironment('SONGRE_ENCRYPT_KEY', defaultValue: '<non-vide>')
+# Le pattern exclut les valeurs vides ('') qui sont le comportement attendu.
+if echo "$STAGED" | grep -q "crypto_service.dart"; then
+  if git show ":lib/utils/crypto_service.dart" 2>/dev/null \
+       | grep -qE -- "fromEnvironment.*SONGRE_ENCRYPT_KEY.*defaultValue[[:space:]]*:[[:space:]]*'[^']{1,}'" 2>/dev/null; then
+    printf "${RED}[BLOQUÉ] crypto_service.dart contient une valeur par défaut non vide pour SONGRE_ENCRYPT_KEY${RESET}\n"
+    printf "  ${YELLOW}→ La valeur defaultValue doit être '' (chaîne vide) — aucun fallback autorisé.${RESET}\n"
+    FOUND=$((FOUND + 1))
+  fi
+fi
+
+# ── Résultat ──────────────────────────────────────────────────────────────────
+if [ "$FOUND" -gt 0 ]; then
+  printf "\n"
+  printf "${RED}═══════════════════════════════════════════════════════════════${RESET}\n"
+  printf "${RED}  COMMIT BLOQUÉ : %d secret(s) détecté(s).${RESET}\n" "$FOUND"
+  printf "${RED}  Retirez les secrets du code avant de committer.${RESET}\n"
+  printf "${RED}  Utilisez --dart-define, des variables d'env, ou un fichier .env${RESET}\n"
+  printf "${RED}  exclu du dépôt (.gitignore).${RESET}\n"
+  printf "${RED}═══════════════════════════════════════════════════════════════${RESET}\n"
+  exit 1
+fi
+
+printf "${GREEN}[pre-commit] Aucun secret détecté. Commit autorisé.${RESET}\n"
+exit 0
