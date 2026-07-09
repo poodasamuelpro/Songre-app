@@ -5,6 +5,9 @@ import '../theme/sauve_theme.dart';
 import '../services/app_state.dart';
 import '../models/models.dart';
 import 'package:intl/intl.dart';
+import 'change_password_screen.dart';
+import 'contact_screen.dart';
+import 'parametres_screen.dart';
 
 // =====================================================================
 // ÉCRAN 5 — Profil donneur
@@ -1016,9 +1019,40 @@ class ProfilScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _buildSettingsItem(
-              icon: Icons.privacy_tip_outlined,
-              label: 'Politique de confidentialité',
-              onTap: () {},
+              icon: Icons.lock_outline,
+              label: 'Modifier mon mot de passe',
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const ChangePasswordScreen(),
+                  ),
+                );
+              },
+            ),
+            _buildSettingsItem(
+              icon: Icons.help_outline,
+              label: 'Aide et contact',
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const ContactScreen(),
+                  ),
+                );
+              },
+            ),
+            _buildSettingsItem(
+              icon: Icons.settings_outlined,
+              label: 'Paramètres et liens utiles',
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const ParametresScreen(),
+                  ),
+                );
+              },
             ),
             // §4.2 — Bouton suppression de compte avec J+5
             _buildSettingsItem(

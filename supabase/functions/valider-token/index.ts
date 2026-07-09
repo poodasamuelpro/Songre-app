@@ -34,44 +34,43 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getCorsHeaders, handleCors } from "../_shared/cors.ts";
+import { notifierUtilisateur } from "../_shared/notifier.ts";
 
-// ── Helpers CORS ──────────────────────────────────────────────────────────────
+// ── Helpers CORS — délégués à _shared/cors.ts ─────────────────────────────────
+// (Les fonctions locales getCorsHeaders/jsonResponse ont été migrées vers _shared)
 
-function getCorsHeaders(): Record<string, string> {
-  // En production, remplacer par le domaine exact de l'application
-  const allowedOrigin = Deno.env.get("ALLOWED_ORIGIN") ?? "https://songre.bf";
-  return {
-    "Access-Control-Allow-Origin": allowedOrigin,
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-  };
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  corsHeaders?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "Content-Type": "application/json",
-      ...getCorsHeaders(),
+      ...(corsHeaders ?? {}),
     },
   });
 }
 
-function errorResponse(message: string, status = 400): Response {
-  return jsonResponse({ error: message }, status);
+function errorResponse(
+  message: string,
+  status = 400,
+  corsHeaders?: Record<string, string>,
+): Response {
+  return jsonResponse({ error: message }, status, corsHeaders);
 }
 
 // ── Handler principal ─────────────────────────────────────────────────────────
 
 serve(async (req: Request) => {
-  // Preflight CORS
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: getCorsHeaders() });
-  }
+  const corsHeaders = getCorsHeaders(req);
+  const preflight = handleCors(req, corsHeaders);
+  if (preflight) return preflight;
 
   if (req.method !== "POST") {
-    return errorResponse("Méthode non autorisée.", 405);
+    return errorResponse("Méthode non autorisée.", 405, corsHeaders);
   }
 
   // ── 0. WEBHOOK_SECRET — OBLIGATOIRE ──────────────────────────────────────
@@ -82,18 +81,19 @@ serve(async (req: Request) => {
     return errorResponse(
       "Configuration serveur incomplète. Contactez l'administrateur.",
       500,
+      corsHeaders,
     );
   }
   const receivedSecret = req.headers.get("x-webhook-secret");
   if (receivedSecret !== webhookSecret) {
     console.warn("[valider-token] Secret webhook invalide — requête rejetée.");
-    return errorResponse("Authentification webhook invalide.", 401);
+    return errorResponse("Authentification webhook invalide.", 401, corsHeaders);
   }
 
   // ── 1. Authentification JWT de l'appelant ─────────────────────────────────
   const authHeader = req.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return errorResponse("Token d'authentification manquant.", 401);
+    return errorResponse("Token d'authentification manquant.", 401, corsHeaders);
   }
   const jwt = authHeader.substring(7);
 
@@ -114,7 +114,7 @@ serve(async (req: Request) => {
 
   const { data: { user }, error: authError } = await userClient.auth.getUser();
   if (authError || !user) {
-    return errorResponse("JWT invalide ou expiré.", 401);
+    return errorResponse("JWT invalide ou expiré.", 401, corsHeaders);
   }
 
   // ── 2. Parser le body ─────────────────────────────────────────────────────
@@ -122,20 +122,20 @@ serve(async (req: Request) => {
   try {
     body = await req.json();
   } catch {
-    return errorResponse("Body JSON invalide.");
+    return errorResponse("Body JSON invalide.", 400, corsHeaders);
   }
 
   const { token, demandeur_id } = body;
 
   if (!token || typeof token !== "string" || token.trim().length === 0) {
-    return errorResponse("Champ 'token' manquant ou vide.");
+    return errorResponse("Champ 'token' manquant ou vide.", 400, corsHeaders);
   }
   if (
     !demandeur_id ||
     typeof demandeur_id !== "string" ||
     demandeur_id.trim().length === 0
   ) {
-    return errorResponse("Champ 'demandeur_id' manquant ou vide.");
+    return errorResponse("Champ 'demandeur_id' manquant ou vide.", 400, corsHeaders);
   }
 
   // §6 audit : ID utilisateur vide → bloquer immédiatement
@@ -143,6 +143,7 @@ serve(async (req: Request) => {
     return errorResponse(
       "demandeur_id ne correspond pas à l'utilisateur authentifié.",
       403,
+      corsHeaders,
     );
   }
 
@@ -159,11 +160,11 @@ serve(async (req: Request) => {
 
   if (qrError) {
     console.error("[valider-token] DB error fetching token:", qrError);
-    return errorResponse("Erreur interne lors de la récupération du token.", 500);
+    return errorResponse("Erreur interne lors de la récupération du token.", 500, corsHeaders);
   }
 
   if (!qrRows || qrRows.length === 0) {
-    return errorResponse("Code QR introuvable ou invalide.", 404);
+    return errorResponse("Code QR introuvable ou invalide.", 404, corsHeaders);
   }
 
   const qr = qrRows[0] as {
@@ -180,6 +181,8 @@ serve(async (req: Request) => {
   if (qr.used_at !== null) {
     return errorResponse(
       "Ce code QR a déjà été utilisé. Il ne peut être validé qu'une seule fois.",
+      400,
+      corsHeaders,
     );
   }
   const now = new Date();
@@ -187,7 +190,7 @@ serve(async (req: Request) => {
     const exp = new Date(qr.expires_at).toLocaleString("fr-FR", {
       timeZone: "UTC",
     });
-    return errorResponse(`Code QR expiré depuis le ${exp}.`);
+    return errorResponse(`Code QR expiré depuis le ${exp}.`, 400, corsHeaders);
   }
 
   // ── 4. Vérifier que l'appelant est bien l'auteur de la demande ────────────
@@ -198,7 +201,7 @@ serve(async (req: Request) => {
     .limit(1);
 
   if (demandeError || !demandeRows || demandeRows.length === 0) {
-    return errorResponse("Demande liée au token introuvable.", 404);
+    return errorResponse("Demande liée au token introuvable.", 404, corsHeaders);
   }
 
   const demande = demandeRows[0] as {
@@ -211,12 +214,15 @@ serve(async (req: Request) => {
     return errorResponse(
       "Vous n'êtes pas l'auteur de cette demande.",
       403,
+      corsHeaders,
     );
   }
 
   if (demande.statut !== "active") {
     return errorResponse(
       `La demande est dans l'état '${demande.statut}' et ne peut plus être honorée.`,
+      400,
+      corsHeaders,
     );
   }
 
@@ -236,7 +242,6 @@ serve(async (req: Request) => {
 
   if (updateError) {
     console.error("[valider-token] Failed to mark token used:", updateError);
-    // Le trigger peut lever un message métier — le propager
     const triggerMessage = updateError.message ?? "";
     if (
       triggerMessage.includes("expiré") ||
@@ -244,9 +249,9 @@ serve(async (req: Request) => {
       triggerMessage.includes("utilisé") ||
       triggerMessage.includes("used")
     ) {
-      return errorResponse(triggerMessage);
+      return errorResponse(triggerMessage, 400, corsHeaders);
     }
-    return errorResponse("Erreur lors de la validation du code.", 500);
+    return errorResponse("Erreur lors de la validation du code.", 500, corsHeaders);
   }
 
   // ── 6. Insérer dans public.historique_dons ────────────────────────────────
@@ -280,11 +285,45 @@ serve(async (req: Request) => {
     );
   }
 
-  // ── 8. Réponse succès ─────────────────────────────────────────────────────
+  // ── 8. Notifications D3-case3 ────────────────────────────────────────────
+  // Donneur : "don_confirme" — merci pour votre don
+  // Demandeur : "don_confirme_demandeur" — votre demande a été honorée
+  // Ces notifications sont non bloquantes : une erreur n'interrompt pas la réponse.
+  const dateStr = now.toLocaleDateString("fr-FR");
+
+  const [notifDonneur, notifDemandeur] = await Promise.all([
+    notifierUtilisateur(
+      adminClient,
+      qr.donneur_id,
+      "don_confirme",
+      { date: dateStr },
+      { demandeId: qr.demande_id },
+    ).catch((err) => {
+      console.error("[valider-token] Erreur notif donneur:", err);
+      return null;
+    }),
+    notifierUtilisateur(
+      adminClient,
+      demande.auteur_id,
+      "don_confirme_demandeur",
+      {},
+      { demandeId: qr.demande_id },
+    ).catch((err) => {
+      console.error("[valider-token] Erreur notif demandeur:", err);
+      return null;
+    }),
+  ]);
+
+  console.log(
+    `[valider-token] Notifs: donneur=${notifDonneur?.emailSent || notifDonneur?.fcmSent}, ` +
+    `demandeur=${notifDemandeur?.emailSent || notifDemandeur?.fcmSent}`,
+  );
+
+  // ── 9. Réponse succès ─────────────────────────────────────────────────────
   return jsonResponse({
     success: true,
     donneur_id: qr.donneur_id,
     demande_id: qr.demande_id,
     validated_at: now.toISOString(),
-  });
+  }, 200, corsHeaders);
 });

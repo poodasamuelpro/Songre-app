@@ -676,6 +676,25 @@ class SupabaseService {
   }) async {
     if (!estConfigured) return false;
     try {
+      // Case 4 — Mission D : les dons déclaratifs passent par l'EF don-manuel
+      // qui met à jour profil_donneurs.dernier_don_date, insère dans historique_dons
+      // ET envoie la notification don_enregistre_manuel.
+      if (source == SourceDon.declaratif && _accessToken != null) {
+        final efUrl =
+            Uri.parse('$_supabaseUrl/functions/v1/don-manuel');
+        final efBody = jsonEncode({
+          'date_don': dateDon.toIso8601String().substring(0, 10),
+          if (demandeId != null) 'demande_id': demandeId,
+        });
+        final efResp = await _requeteAvecRefresh(
+          () => http
+              .post(efUrl, headers: _headers(withAuth: true), body: efBody)
+              .timeout(const Duration(seconds: 12)),
+        );
+        return efResp.statusCode == 200;
+      }
+
+      // Fallback pour les autres sources (qr_confirme, etc.) : insertion directe
       final url = Uri.parse('$_supabaseUrl/rest/v1/historique_dons');
       final hdrs = _restHeaders(withAuth: true);
       final body = jsonEncode({
@@ -847,13 +866,40 @@ class SupabaseService {
         () => http.patch(url, headers: hdrs, body: body)
             .timeout(const Duration(seconds: 10)),
       );
-      return resp.statusCode == 204 || resp.statusCode == 200;
+      final ok = resp.statusCode == 204 || resp.statusCode == 200;
+
+      // Case 6 — Notification suppression_demandee (fire-and-forget)
+      if (ok) {
+        _declencherNotificationSuppressionDemandee();
+      }
+
+      return ok;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[SupabaseService] programmerSuppression error: $e');
       }
       return false;
     }
+  }
+
+  /// Fire-and-forget : appelle l'EF mdp-modifie-auth avec action=suppression_demandee
+  /// pour déclencher l'email + notification in-app (type suppression_demandee).
+  static void _declencherNotificationSuppressionDemandee() {
+    if (!estConfigured || _accessToken == null) return;
+    http
+        .post(
+          Uri.parse('$_supabaseUrl/functions/v1/mdp-modifie-auth'),
+          headers: _headers(withAuth: true),
+          body: jsonEncode({'action': 'suppression_demandee'}),
+        )
+        .timeout(const Duration(seconds: 8))
+        .catchError((e) {
+      if (kDebugMode) {
+        debugPrint(
+            '[SupabaseService] _declencherNotificationSuppressionDemandee: $e');
+      }
+      return http.Response('', 500);
+    });
   }
 
   static Future<bool> annulerSuppression(String userId) async {
@@ -951,6 +997,214 @@ class SupabaseService {
       return 0;
     }
   }
+
+  // =====================================================================
+  // MOT DE PASSE — Changement + Réinitialisation (D6 — Mission D)
+  // =====================================================================
+
+  /// Retourne l'email de l'utilisateur authentifié courant
+  /// via GET /auth/v1/user (utilise le JWT en mémoire).
+  static Future<String?> obtenirEmailCourant() async {
+    if (!estConfigured || _accessToken == null) return null;
+    try {
+      final resp = await _requeteAvecRefresh(
+        () => http
+            .get(
+              Uri.parse('$_supabaseUrl/auth/v1/user'),
+              headers: _headers(withAuth: true),
+            )
+            .timeout(const Duration(seconds: 8)),
+      );
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        return data['email'] as String?;
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] obtenirEmailCourant: $e');
+      return null;
+    }
+  }
+
+  /// Vérifie l'ancien mot de passe en ré-authentifiant l'utilisateur.
+  /// Retourne true si les identifiants sont valides.
+  static Future<bool> verifierMotDePasse({
+    required String email,
+    required String motDePasse,
+  }) async {
+    if (!estConfigured) return false;
+    try {
+      final resp = await http
+          .post(
+            Uri.parse('$_supabaseUrl/auth/v1/token?grant_type=password'),
+            headers: _headers(),
+            body: jsonEncode({'email': email, 'password': motDePasse}),
+          )
+          .timeout(const Duration(seconds: 10));
+      return resp.statusCode == 200;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] verifierMotDePasse: $e');
+      return false;
+    }
+  }
+
+  /// Change le mot de passe de l'utilisateur authentifié.
+  /// Appelle PUT /auth/v1/user avec { password: nouveauMotDePasse }.
+  static Future<AuthResult> changerMotDePasse({
+    required String nouveauMotDePasse,
+  }) async {
+    if (!estConfigured || _accessToken == null) {
+      return const AuthResult(
+          success: false, error: 'Session invalide. Reconnectez-vous.');
+    }
+    try {
+      final resp = await _requeteAvecRefresh(
+        () => http
+            .put(
+              Uri.parse('$_supabaseUrl/auth/v1/user'),
+              headers: _headers(withAuth: true),
+              body: jsonEncode({'password': nouveauMotDePasse}),
+            )
+            .timeout(const Duration(seconds: 10)),
+      );
+
+      if (resp.statusCode == 200) {
+        return const AuthResult(success: true);
+      }
+
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      final msg = data['message'] as String? ??
+          data['msg'] as String? ??
+          'Erreur lors du changement de mot de passe (${resp.statusCode}).';
+      return AuthResult(success: false, error: msg);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] changerMotDePasse: $e');
+      return const AuthResult(
+          success: false, error: 'Erreur réseau. Veuillez réessayer.');
+    }
+  }
+
+  /// Envoie un email de réinitialisation de mot de passe.
+  /// Appelle POST /auth/v1/recover.
+  static Future<bool> reinitialiserMotDePasse({required String email}) async {
+    if (!estConfigured) return false;
+    try {
+      final resp = await http
+          .post(
+            Uri.parse('$_supabaseUrl/auth/v1/recover'),
+            headers: _headers(),
+            body: jsonEncode({'email': email}),
+          )
+          .timeout(const Duration(seconds: 10));
+      // 200 = email envoyé, 204 = même résultat sans body
+      return resp.statusCode == 200 || resp.statusCode == 204;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] reinitialiserMotDePasse: $e');
+      return false;
+    }
+  }
+
+  /// Déclenche la notification mdp_modifie via l'EF mdp-modifie-auth.
+  /// Appelé en fire-and-forget après un changement de mot de passe réussi.
+  static Future<void> declencherNotificationMdpModifie() async {
+    if (!estConfigured || _accessToken == null) return;
+    try {
+      await http
+          .post(
+            Uri.parse('$_supabaseUrl/functions/v1/mdp-modifie-auth'),
+            headers: _headers(withAuth: true),
+            body: jsonEncode({'action': 'mdp_modifie'}),
+          )
+          .timeout(const Duration(seconds: 8));
+    } catch (e) {
+      // Fire-and-forget : on ne propage pas l'erreur
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] declencherNotificationMdpModifie: $e');
+      }
+    }
+  }
+
+  // =====================================================================
+  // CONTACT SUPPORT — Envoi de message (D8 — Mission D)
+  // =====================================================================
+
+  /// Envoie un message au support via l'EF contacter-support.
+  /// Anti-spam côté serveur (fenêtre 10 min).
+  static Future<ContactResult> envoyerMessageSupport({
+    required String objet,
+    required String message,
+  }) async {
+    if (!estConfigured || _accessToken == null) {
+      return const ContactResult(
+          success: false, error: 'Session invalide. Reconnectez-vous.');
+    }
+    try {
+      final resp = await _requeteAvecRefresh(
+        () => http
+            .post(
+              Uri.parse('$_supabaseUrl/functions/v1/contacter-support'),
+              headers: _headers(withAuth: true),
+              body: jsonEncode({'objet': objet, 'message': message}),
+            )
+            .timeout(const Duration(seconds: 12)),
+      );
+
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+
+      if (resp.statusCode == 200) {
+        return const ContactResult(success: true);
+      }
+
+      // 429 = anti-spam déclenché
+      if (resp.statusCode == 429) {
+        return ContactResult(
+          success: false,
+          error: data['error'] as String? ??
+              'Vous avez déjà envoyé un message récemment. Attendez 10 minutes.',
+        );
+      }
+
+      final msg = data['error'] as String? ??
+          'Erreur lors de l\'envoi (${resp.statusCode}).';
+      return ContactResult(success: false, error: msg);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] envoyerMessageSupport: $e');
+      return const ContactResult(
+          success: false, error: 'Erreur réseau. Veuillez réessayer.');
+    }
+  }
+
+  // =====================================================================
+  // LIENS EXTERNES — Table dynamique (D9 — Mission D)
+  // =====================================================================
+
+  /// Charge les liens externes actifs depuis public.liens_externes,
+  /// triés par ordre_affichage.
+  static Future<List<LienExterne>> lireLiensExternes() async {
+    if (!estConfigured) return [];
+    try {
+      final url = Uri.parse(
+        '$_supabaseUrl/rest/v1/liens_externes'
+        '?actif=eq.true'
+        '&order=ordre_affichage.asc',
+      );
+      final resp = await _requeteAvecRefresh(
+        () => http
+            .get(url, headers: _restHeaders(withAuth: false))
+            .timeout(const Duration(seconds: 8)),
+      );
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body) as List;
+        return list
+            .map((e) => LienExterne.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] lireLiensExternes: $e');
+      return [];
+    }
+  }
 }
 
 // =====================================================================
@@ -1007,4 +1261,48 @@ class ValidationResult {
     this.donneurId,
     this.error,
   });
+}
+
+// =====================================================================
+// MODÈLE — LienExterne (D9 — Mission D)
+// =====================================================================
+
+class LienExterne {
+  final int id;
+  final String cle;
+  final String libelle;
+  final String url;
+  final String? icone;
+  final int ordreAffichage;
+
+  const LienExterne({
+    required this.id,
+    required this.cle,
+    required this.libelle,
+    required this.url,
+    this.icone,
+    required this.ordreAffichage,
+  });
+
+  factory LienExterne.fromJson(Map<String, dynamic> json) {
+    return LienExterne(
+      id: json['id'] as int? ?? 0,
+      cle: json['cle'] as String? ?? '',
+      libelle: json['libelle'] as String? ?? '',
+      url: json['url'] as String? ?? '',
+      icone: json['icone'] as String?,
+      ordreAffichage: json['ordre_affichage'] as int? ?? 0,
+    );
+  }
+}
+
+// =====================================================================
+// MODÈLE — ContactResult (D8 — Mission D)
+// =====================================================================
+
+class ContactResult {
+  final bool success;
+  final String? error;
+
+  const ContactResult({required this.success, this.error});
 }

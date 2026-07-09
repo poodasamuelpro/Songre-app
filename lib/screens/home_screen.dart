@@ -100,25 +100,11 @@ class HomeScreen extends StatelessWidget {
   Widget _buildBrand() {
     return Row(
       children: [
-        _buildGoutte(),
-        const SizedBox(width: 8),
-          Text(
-          'SONGRE',
-          style: GoogleFonts.archivo(
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-            color: SauveColors.encre,
-          ),
+        Image.asset(
+          'assets/images/logo_songre.png',
+          height: 28,
         ),
       ],
-    );
-  }
-
-  Widget _buildGoutte() {
-    return SizedBox(
-      width: 14,
-      height: 16,
-      child: CustomPaint(painter: _GoutePainter()),
     );
   }
 
@@ -289,25 +275,4 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-// Peintre personnalisé pour la goutte de sang (logo Sauve)
-class _GoutePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = SauveColors.rouge;
-    final path = Path()
-      ..moveTo(size.width / 2, 0)
-      ..quadraticBezierTo(size.width, size.height * 0.4, size.width, size.height * 0.65)
-      ..arcToPoint(
-        Offset(0, size.height * 0.65),
-        radius: Radius.circular(size.width / 2),
-      )
-      ..quadraticBezierTo(0, size.height * 0.4, size.width / 2, 0)
-      ..close();
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

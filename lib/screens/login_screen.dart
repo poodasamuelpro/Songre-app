@@ -87,20 +87,12 @@ class _LoginScreenState extends State<LoginScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 60),
-          Row(
-            children: [
-              _buildGoutte(size: 32),
-              const SizedBox(width: 12),
-              Text(
-                'SONGRE',
-                style: GoogleFonts.archivo(
-                  fontSize: 36,
-                  fontWeight: FontWeight.w900,
-                  color: SauveColors.encre,
-                ),
-              ),
-            ],
+          const SizedBox(height: 48),
+          // Logo SONGRE — D7 Mission D
+          Image.asset(
+            'assets/images/logo_songre.png',
+            height: 72,
+            alignment: Alignment.centerLeft,
           ),
           const SizedBox(height: 24),
           Text(
@@ -197,22 +189,6 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: 32),
         ],
       ),
-    );
-  }
-
-  Widget _buildGoutte({double size = 20}) {
-    return Container(
-      width: size * 0.875,
-      height: size,
-      decoration: const BoxDecoration(
-        color: SauveColors.rouge,
-        borderRadius: BorderRadius.only(
-          topRight: Radius.circular(100),
-          bottomRight: Radius.circular(100),
-          bottomLeft: Radius.circular(100),
-        ),
-      ),
-      transform: Matrix4.rotationZ(0.785398),
     );
   }
 }
