@@ -62,25 +62,18 @@ class _ScanQrScreenState extends State<ScanQrScreen> {
     final trimmed = token.trim();
     if (trimmed.isEmpty) return;
 
-    // [2.6] Garde obligatoire : demandeurId ne doit jamais être vide.
-    // Cela arrive si le userId était null au moment de la navigation vers cet
-    // écran (race condition entre AppState.init() et le tap utilisateur).
+    // [Sécurité T9] Le bloc HARD est dans router.dart (redirect sur /scan-qr).
+    // Ce garde secondaire est conservé comme filet de sécurité au cas où l'écran
+    // serait instancié directement (tests unitaires, deep link, etc.).
+    // En production normale, demandeurId est toujours non-vide ici.
+    assert(
+      widget.demandeurId.isNotEmpty,
+      'ScanQrScreen instancié sans demandeurId — le redirect dans router.dart aurait dû bloquer.',
+    );
     if (widget.demandeurId.isEmpty) {
+      // Ne devrait jamais arriver en production — le router bloque avant.
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Session expirée. Reconnectez-vous pour valider un don.',
-            style: GoogleFonts.inter(fontSize: 13),
-          ),
-          backgroundColor: SauveColors.rouge,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          duration: const Duration(seconds: 4),
-        ),
-      );
-      // Retour à l'écran précédent — l'utilisateur devra se reconnecter
-      context.pop();
+      context.go('/home');
       return;
     }
 

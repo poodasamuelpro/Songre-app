@@ -11,11 +11,15 @@ import '../utils/secure_storage_service.dart';
 // Configuration via --dart-define :
 //   SUPABASE_URL=https://ptomqwucvveuflfnyczo.supabase.co
 //   SUPABASE_ANON_KEY=eyJ...
-//   SAUVE_ENCRYPT_KEY=<32 chars minimum>
+//   SONGRE_ENCRYPT_KEY=<32 chars minimum>
 //
 // Authentification : Email / Mot de passe via Supabase Auth
 // Token : JWT signé retourné par /auth/v1/token?grant_type=password
-// Schémas PostgreSQL : identite.* et sante.*
+// Schéma PostgreSQL : public.* (schéma réel — PAS sante.* ni identite.*)
+//
+// IMPORTANT : La Service Role Key n'appartient JAMAIS à ce fichier.
+//             Elle est injectée exclusivement dans les Edge Functions
+//             via les secrets Supabase Dashboard.
 // =====================================================================
 class SupabaseService {
   SupabaseService._();
@@ -181,7 +185,7 @@ class SupabaseService {
         _refreshToken = data['refresh_token'] as String?;
         final user = data['user'] as Map<String, dynamic>?;
         _currentUserId = user?['id'] as String?;
-        // Persister immédiatement les tokens raffraîchis
+        // Persister immédiatement les tokens rafraîchis
         if (_accessToken != null && _refreshToken != null) {
           await SecureStorageService.mettreAJourTokens(
             accessToken: _accessToken!,
@@ -263,7 +267,62 @@ class SupabaseService {
   }
 
   // =====================================================================
-  // PROFIL DONNEUR — Création et modification (schéma sante.*)
+  // RÉFÉRENTIELS — Villes et structures sanitaires (public.*)
+  // =====================================================================
+
+  /// Charge la liste des villes actives depuis public.villes
+  static Future<List<Ville>> lireVilles() async {
+    if (!estConfigured) return [];
+    try {
+      final url = Uri.parse(
+        '$_supabaseUrl/rest/v1/villes'
+        '?active=eq.true'
+        '&order=nom.asc',
+      );
+      final resp = await _requeteAvecRefresh(
+        () => http.get(url, headers: _restHeaders(withAuth: true))
+            .timeout(const Duration(seconds: 10)),
+      );
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body) as List;
+        return list.map((e) => Ville.fromJson(e as Map<String, dynamic>)).toList();
+      }
+      return [];
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] lireVilles error: $e');
+      return [];
+    }
+  }
+
+  /// Charge les structures sanitaires actives d'une ville donnée
+  static Future<List<StructureSanitaire>> lireStructures(int villeId) async {
+    if (!estConfigured) return [];
+    try {
+      final url = Uri.parse(
+        '$_supabaseUrl/rest/v1/structures_sanitaires'
+        '?ville_id=eq.$villeId'
+        '&active=eq.true'
+        '&order=nom.asc',
+      );
+      final resp = await _requeteAvecRefresh(
+        () => http.get(url, headers: _restHeaders(withAuth: true))
+            .timeout(const Duration(seconds: 10)),
+      );
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body) as List;
+        return list
+            .map((e) => StructureSanitaire.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] lireStructures error: $e');
+      return [];
+    }
+  }
+
+  // =====================================================================
+  // PROFIL DONNEUR — Création et modification (schéma public.*)
   // =====================================================================
   static Future<bool> creerOuMettreAJourProfil(ProfilDonneur profil) async {
     if (!estConfigured) {
@@ -271,25 +330,13 @@ class SupabaseService {
       return false;
     }
 
-    final poidsChiffre = CryptoService.chiffrer(profil.poids.toString());
-    final ciChiffre = CryptoService.chiffrerListe(profil.contreIndications);
-
     final hdrs = {
       ..._restHeaders(withAuth: true),
       'Prefer': 'return=minimal,resolution=merge-duplicates',
     };
-    final body = jsonEncode({
-      'user_id': profil.userId,
-      'groupe_sanguin': profil.groupeSanguin.label,
-      'poids_chiffre': poidsChiffre,
-      'genre': profil.genre.value,
-      'ville': profil.ville,
-      'quartier': profil.quartier,
-      'contre_indications_chiffre': ciChiffre,
-      'dernier_don_date':
-          profil.dernierDonDate?.toIso8601String().substring(0, 10),
-      'disponible': profil.disponible,
-    });
+    // Utiliser toJsonPourBase() qui chiffre poids + CI et envoie ville_id (int)
+    final body = jsonEncode(profil.toJsonPourBase());
+
     try {
       final url = Uri.parse('$_supabaseUrl/rest/v1/profils_donneurs');
       final resp = await _requeteAvecRefresh(
@@ -301,24 +348,64 @@ class SupabaseService {
           resp.statusCode == 200 ||
           resp.statusCode == 204;
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[SupabaseService] creerOuMettreAJourProfil error: $e');
+      }
       return false;
     }
   }
 
+  /// Charge le profil depuis le backend, déchiffre poids + CI.
+  /// Nécessite la map des villes pour résoudre ville_nom.
+  static Future<ProfilDonneur?> lireProfil(
+    String userId, {
+    Map<int, String>? villesMap,
+  }) async {
+    if (!estConfigured) return null;
+    try {
+      final url = Uri.parse(
+        '$_supabaseUrl/rest/v1/profils_donneurs'
+        '?user_id=eq.$userId'
+        '&limit=1',
+      );
+      final resp = await _requeteAvecRefresh(
+        () => http.get(url, headers: _restHeaders(withAuth: true))
+            .timeout(const Duration(seconds: 10)),
+      );
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body) as List;
+        if (list.isEmpty) return null;
+        final json = list[0] as Map<String, dynamic>;
+        final villeId = json['ville_id'] as int? ?? 0;
+        final villeNom = villesMap?[villeId] ?? '';
+        return ProfilDonneur.fromBase(json, villeNom: villeNom);
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] lireProfil error: $e');
+      return null;
+    }
+  }
+
   // =====================================================================
-  // DEMANDES DE SANG — Lecture et création
+  // DEMANDES DE SANG — Lecture et création (schéma public.*)
   // =====================================================================
-  static Future<List<DemandeSang>> lireDemandesActives(String ville) async {
+
+  /// Charge les demandes actives pour une ville (filtre par ville_id).
+  static Future<List<DemandeSang>> lireDemandesActives(
+    int villeId, {
+    Map<int, String>? villesMap,
+    Map<int, String>? structuresMap,
+  }) async {
     if (!estConfigured) return [];
 
     try {
+      final now = DateTime.now().toUtc().toIso8601String();
       final url = Uri.parse(
         '$_supabaseUrl/rest/v1/demandes_sang'
-        '?ville=eq.${Uri.encodeComponent(ville)}'
+        '?ville_id=eq.$villeId'
         '&statut=eq.active'
-        '&expires_at=gt.${DateTime.now().toUtc().toIso8601String()}'
+        '&expires_at=gt.$now'
         '&order=created_at.desc'
         '&limit=50',
       );
@@ -330,22 +417,31 @@ class SupabaseService {
       if (resp.statusCode == 200) {
         final list = jsonDecode(resp.body) as List;
         return list
-            .map((e) => DemandeSang.fromJson(e as Map<String, dynamic>))
+            .map((e) => DemandeSang.fromJson(
+                  e as Map<String, dynamic>,
+                  villesMap: villesMap,
+                  structuresMap: structuresMap,
+                ))
             .toList();
       }
       return [];
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[SupabaseService] lireDemandesActives error: $e');
+      }
       return [];
     }
   }
 
+  /// Crée une nouvelle demande de sang.
+  /// Reçoit les IDs entiers (ville_id, structure_id) — jamais des chaînes.
   static Future<CreationDemandeResult> creerDemande({
     required String userId,
     required GroupeSanguin groupeSanguin,
-    required String ville,
-    required String structureSanitaire,
+    required int? villeId,
+    required int? structureId,
+    String? villeLibre,
+    String? structureLibre,
     required String contactPrincipal,
     String? contactSecondaire,
   }) async {
@@ -356,7 +452,7 @@ class SupabaseService {
       );
     }
 
-    // Anti-spam : max 3 demandes actives
+    // Anti-spam : max 3 demandes actives — PROTÉGÉ par _requeteAvecRefresh
     final count = await _compterDemandesActives(userId);
     if (count >= 3) {
       return const CreationDemandeResult(
@@ -369,15 +465,29 @@ class SupabaseService {
     final contactChiffre = CryptoService.chiffrer(contactPrincipal);
     final contactSecondaireChiffre =
         CryptoService.chiffrer(contactSecondaire);
-    final body = jsonEncode({
+
+    // Construire le body selon les contraintes de la base :
+    // chk_ville_renseignee  : ville_id IS NOT NULL OR ville_libre IS NOT NULL
+    // chk_structure_renseignee : structure_id IS NOT NULL OR structure_libre IS NOT NULL
+    final Map<String, dynamic> bodyMap = {
       'auteur_id': userId,
       'groupe_sanguin_recherche': groupeSanguin.label,
-      'ville': ville,
-      'structure_sanitaire': structureSanitaire,
       'contact_chiffre': contactChiffre,
       'contact_secondaire_chiffre': contactSecondaireChiffre,
       'statut': 'active',
-    });
+    };
+    if (villeId != null) {
+      bodyMap['ville_id'] = villeId;
+    } else {
+      bodyMap['ville_libre'] = villeLibre;
+    }
+    if (structureId != null) {
+      bodyMap['structure_id'] = structureId;
+    } else {
+      bodyMap['structure_libre'] = structureLibre;
+    }
+
+    final body = jsonEncode(bodyMap);
 
     try {
       final url = Uri.parse('$_supabaseUrl/rest/v1/demandes_sang');
@@ -395,10 +505,17 @@ class SupabaseService {
           demande: DemandeSang.fromJson(demandeData as Map<String, dynamic>),
         );
       }
-      return CreationDemandeResult(
-        success: false,
-        error: 'Erreur lors de la publication (${resp.statusCode})',
-      );
+      // Lire le message d'erreur Supabase si disponible
+      String errMsg =
+          'Erreur lors de la publication (${resp.statusCode})';
+      try {
+        final errData =
+            jsonDecode(resp.body) as Map<String, dynamic>;
+        errMsg = errData['message'] as String? ??
+            errData['error'] as String? ??
+            errMsg;
+      } catch (_) {}
+      return CreationDemandeResult(success: false, error: errMsg);
     } catch (e) {
       if (kDebugMode) debugPrint('[SupabaseService] creerDemande error: $e');
       return const CreationDemandeResult(
@@ -414,7 +531,6 @@ class SupabaseService {
 
   /// [PERF-05] Vérifie si un token QR valide (non expiré, non utilisé)
   /// existe déjà pour ce donneur + demande.
-  /// Retourne le token opaque si trouvé, null sinon.
   static Future<String?> lireTokenQrExistant({
     required String donneurId,
     required String demandeId,
@@ -443,7 +559,9 @@ class SupabaseService {
       }
       return null;
     } catch (e) {
-      if (kDebugMode) debugPrint('[SupabaseService] lireTokenQrExistant error: $e');
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] lireTokenQrExistant error: $e');
+      }
       return null;
     }
   }
@@ -540,8 +658,9 @@ class SupabaseService {
       );
       return resp.statusCode == 204 || resp.statusCode == 200;
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[SupabaseService] mettreAJourDisponibilite error: $e');
+      }
       return false;
     }
   }
@@ -571,8 +690,9 @@ class SupabaseService {
       );
       return resp.statusCode == 201;
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[SupabaseService] enregistrerDon error: $e');
+      }
       return false;
     }
   }
@@ -603,8 +723,107 @@ class SupabaseService {
           resp.statusCode == 200 ||
           resp.statusCode == 204;
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[SupabaseService] enregistrerReponseDonneur error: $e');
+      }
+      return false;
+    }
+  }
+
+  // =====================================================================
+  // NOTIFICATIONS — Lecture depuis public.notifications_envoyees
+  // =====================================================================
+
+  /// Charge les 50 dernières notifications de l'utilisateur depuis le backend.
+  /// Source de vérité : public.notifications_envoyees.
+  static Future<List<NotificationSauve>> lireNotifications(
+      String userId) async {
+    if (!estConfigured || _accessToken == null) return [];
+    try {
+      final url = Uri.parse(
+        '$_supabaseUrl/rest/v1/notifications_envoyees'
+        '?user_id=eq.$userId'
+        '&order=created_at.desc'
+        '&limit=50',
+      );
+      final resp = await _requeteAvecRefresh(
+        () => http.get(url, headers: _restHeaders(withAuth: true))
+            .timeout(const Duration(seconds: 10)),
+      );
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body) as List;
+        return list
+            .map((e) =>
+                NotificationSauve.fromBase(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] lireNotifications error: $e');
+      }
+      return [];
+    }
+  }
+
+  /// Marque une notification comme lue dans public.notifications_envoyees.
+  static Future<bool> marquerNotificationLue(String notifId) async {
+    if (!estConfigured || _accessToken == null) return false;
+    try {
+      final url = Uri.parse(
+          '$_supabaseUrl/rest/v1/notifications_envoyees?id=eq.$notifId');
+      final hdrs = {
+        ..._restHeaders(withAuth: true),
+        'Prefer': 'return=minimal',
+      };
+      final body = jsonEncode({'lu': true});
+      final resp = await _requeteAvecRefresh(
+        () => http.patch(url, headers: hdrs, body: body)
+            .timeout(const Duration(seconds: 8)),
+      );
+      return resp.statusCode == 204 || resp.statusCode == 200;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] marquerNotificationLue error: $e');
+      }
+      return false;
+    }
+  }
+
+  // =====================================================================
+  // DEVICE TOKENS FCM — public.device_tokens
+  // =====================================================================
+
+  /// Enregistre (ou met à jour) le token FCM de l'appareil courant.
+  /// Utilise upsert sur fcm_token (unique) pour éviter les doublons.
+  static Future<bool> enregistrerFcmToken({
+    required String userId,
+    required String fcmToken,
+    String? plateforme,
+  }) async {
+    if (!estConfigured || _accessToken == null) return false;
+    try {
+      final url = Uri.parse('$_supabaseUrl/rest/v1/device_tokens');
+      final hdrs = {
+        ..._restHeaders(withAuth: true),
+        'Prefer': 'return=minimal,resolution=merge-duplicates',
+      };
+      final body = jsonEncode({
+        'user_id': userId,
+        'fcm_token': fcmToken,
+        'plateforme': plateforme,
+      });
+      final resp = await _requeteAvecRefresh(
+        () => http.post(url, headers: hdrs, body: body)
+            .timeout(const Duration(seconds: 10)),
+      );
+      return resp.statusCode == 201 ||
+          resp.statusCode == 200 ||
+          resp.statusCode == 204;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] enregistrerFcmToken error: $e');
+      }
       return false;
     }
   }
@@ -630,8 +849,9 @@ class SupabaseService {
       );
       return resp.statusCode == 204 || resp.statusCode == 200;
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[SupabaseService] programmerSuppression error: $e');
+      }
       return false;
     }
   }
@@ -652,8 +872,9 @@ class SupabaseService {
       );
       return resp.statusCode == 204 || resp.statusCode == 200;
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('[SupabaseService] annulerSuppression error: $e');
+      }
       return false;
     }
   }
@@ -664,12 +885,9 @@ class SupabaseService {
 
   /// [1.5] Interroge la vue demandes_sang_avec_contact pour savoir si
   /// l'utilisateur authentifié a déjà répondu à la demande donnée.
-  /// Retourne le champ `a_repondu` (booléen) calculé par le serveur.
-  /// Jamais déduit côté client : la vérité vient de la base.
   static Future<bool> verifierReponduDemande(String demandeId) async {
     if (!estConfigured || _accessToken == null) return false;
     try {
-      // Interroger la vue avec filtre sur l'id — sélectionner uniquement a_repondu
       final url = Uri.parse(
         '$_supabaseUrl/rest/v1/demandes_sang_avec_contact'
         '?id=eq.$demandeId'
@@ -689,10 +907,11 @@ class SupabaseService {
           return list[0]['a_repondu'] as bool? ?? false;
         }
       }
-      // En cas d'erreur réseau : retourner false (côté sécuritaire — pas d'accès)
       return false;
     } catch (e) {
-      if (kDebugMode) debugPrint('[SupabaseService] verifierReponduDemande error: $e');
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] verifierReponduDemande error: $e');
+      }
       return false;
     }
   }
@@ -700,21 +919,28 @@ class SupabaseService {
   // =====================================================================
   // HELPERS PRIVÉS
   // =====================================================================
+
+  /// Compte les demandes actives de l'utilisateur — PROTÉGÉ par
+  /// _requeteAvecRefresh() (§5 audit : anti-spam non contournable par
+  /// expiration de token).
   static Future<int> _compterDemandesActives(String userId) async {
+    if (_accessToken == null) return 0;
     try {
-      final resp = await http.get(
-        Uri.parse(
-          '$_supabaseUrl/rest/v1/demandes_sang'
-          '?auteur_id=eq.$userId'
-          '&statut=eq.active'
-          '&expires_at=gt.${DateTime.now().toUtc().toIso8601String()}'
-          '&select=id',
-        ),
-        headers: {
-          ..._restHeaders(withAuth: true),
-          'Prefer': 'count=exact',
-        },
-      ).timeout(const Duration(seconds: 5));
+      final resp = await _requeteAvecRefresh(
+        () => http.get(
+          Uri.parse(
+            '$_supabaseUrl/rest/v1/demandes_sang'
+            '?auteur_id=eq.$userId'
+            '&statut=eq.active'
+            '&expires_at=gt.${DateTime.now().toUtc().toIso8601String()}'
+            '&select=id',
+          ),
+          headers: {
+            ..._restHeaders(withAuth: true),
+            'Prefer': 'count=exact',
+          },
+        ).timeout(const Duration(seconds: 5)),
+      );
 
       if (resp.statusCode == 200) {
         final list = jsonDecode(resp.body) as List;
@@ -727,7 +953,9 @@ class SupabaseService {
   }
 }
 
-// ---- DTOs résultats ----
+// =====================================================================
+// TYPES DE RÉSULTATS
+// =====================================================================
 
 class AuthResult {
   final bool success;
@@ -750,8 +978,11 @@ class CreationDemandeResult {
   final DemandeSang? demande;
   final String? error;
 
-  const CreationDemandeResult(
-      {required this.success, this.demande, this.error});
+  const CreationDemandeResult({
+    required this.success,
+    this.demande,
+    this.error,
+  });
 }
 
 class QrTokenResult {
@@ -759,8 +990,11 @@ class QrTokenResult {
   final String? tokenOpaque;
   final String? error;
 
-  const QrTokenResult(
-      {required this.success, this.tokenOpaque, this.error});
+  const QrTokenResult({
+    required this.success,
+    this.tokenOpaque,
+    this.error,
+  });
 }
 
 class ValidationResult {
@@ -768,6 +1002,9 @@ class ValidationResult {
   final String? donneurId;
   final String? error;
 
-  const ValidationResult(
-      {required this.success, this.donneurId, this.error});
+  const ValidationResult({
+    required this.success,
+    this.donneurId,
+    this.error,
+  });
 }

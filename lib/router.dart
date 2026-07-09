@@ -112,7 +112,20 @@ GoRouter buildRouter(AppState appState) {
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/scan-qr',
+        redirect: (ctx, state) {
+          // [Sécurité T9] Bloc HARD : si demandeurId vide ou absent, refuser la navigation
+          // avant même de construire l'écran ScanQrScreen.
+          // Cela empêche un utilisateur non authentifié d'accéder au scanner QR.
+          final demandeurId = state.extra as String? ?? '';
+          if (demandeurId.isEmpty) {
+            // Redirection vers l'accueil — l'utilisateur n'est pas authentifié
+            // ou AppState.userId est null (ne pas laisser passer un écran cassé)
+            return '/home';
+          }
+          return null; // autoriser la navigation
+        },
         pageBuilder: (ctx, state) {
+          // demandeurId est garanti non-vide grâce au redirect ci-dessus
           final demandeurId = state.extra as String? ?? '';
           return CustomTransitionPage(
             child: ScanQrScreen(demandeurId: demandeurId),

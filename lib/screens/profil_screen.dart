@@ -249,7 +249,7 @@ class ProfilScreen extends StatelessWidget {
         ),
         const SizedBox(height: 3),
         Text(
-          [profil.ville, if (profil.quartier != null) profil.quartier!]
+          [profil.villeNom, if (profil.quartier != null) profil.quartier!]
               .join(' · '),
           style: GoogleFonts.inter(
             fontSize: 12.5,
@@ -394,7 +394,7 @@ class ProfilScreen extends StatelessWidget {
         _buildInfoRow('Poids', '${profil.poids} kg'),
         _buildInfoRow(
             'Genre', profil.genre == Genre.homme ? 'Homme' : 'Femme'),
-        _buildInfoRow('Ville', profil.ville),
+        _buildInfoRow('Ville', profil.villeNom),
         if (profil.quartier != null)
           _buildInfoRow('Quartier', profil.quartier!),
         _buildInfoRow('Dernier don', dernierDon),
@@ -636,7 +636,7 @@ class ProfilScreen extends StatelessWidget {
     if (profil == null) return;
 
     // Contrôleurs pré-remplis
-    final villeCtrl = TextEditingController(text: profil.ville);
+    final villeCtrl = TextEditingController(text: profil.villeNom);
     final quartierCtrl = TextEditingController(text: profil.quartier ?? '');
     final poidsCtrl = TextEditingController(text: profil.poids.toString());
     GroupeSanguin selectedGroupe = profil.groupeSanguin;
@@ -898,7 +898,7 @@ class ProfilScreen extends StatelessWidget {
                                 groupeSanguin: selectedGroupe,
                                 genre: selectedGenre,
                                 poids: poids,
-                                ville: ville,
+                                villeNom: ville,
                                 quartier: quartierCtrl.text.trim().isEmpty
                                     ? null
                                     : quartierCtrl.text.trim(),

@@ -159,7 +159,7 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
             ),
             const SizedBox(height: 12),
             Text(
-              demande.structureSanitaire,
+              demande.structureNom,
               style: GoogleFonts.archivo(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
@@ -169,7 +169,7 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              demande.ville,
+              demande.villeNom,
               style: GoogleFonts.inter(
                 fontSize: 12.5,
                 color: const Color(0xFFc9bdba),

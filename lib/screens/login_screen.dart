@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/sauve_theme.dart';
 import '../services/app_state.dart';
+import '../services/supabase_service.dart';
 import '../models/models.dart';
 import '../widgets/web_security_banner.dart';
 
@@ -714,11 +715,42 @@ class _ProfilFormState extends State<_ProfilForm> {
   GroupeSanguin _groupe = GroupeSanguin.oplus;
   Genre _genre = Genre.homme;
   int _poids = 70;
-  String _ville = 'Ouagadougou';
+  // Ville : chargée depuis la DB (int ID + nom pour affichage)
+  Ville? _villeSelectionnee;
+  List<Ville> _villes = [];
+  bool _villesLoading = true;
   String _quartier = '';
   final List<String> _contreIndications = [];
   bool _consentement = false;
   bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _chargerVilles());
+  }
+
+  Future<void> _chargerVilles() async {
+    // Priorité : cache AppState
+    final appState = context.read<AppState>();
+    List<Ville> villes = appState.villes;
+    if (villes.isEmpty) {
+      try {
+        villes = await SupabaseService.lireVilles();
+      } catch (_) {
+        // Si la DB est inaccessible, on laisse _villes vide — la
+        // validation de _valider() renverra une erreur explicite.
+        if (mounted) setState(() => _villesLoading = false);
+        return;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _villes = villes;
+      _villesLoading = false;
+      if (_villes.isNotEmpty) _villeSelectionnee = _villes.first;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -921,26 +953,40 @@ class _ProfilFormState extends State<_ProfilForm> {
   }
 
   Widget _buildVilleSelector() {
+    if (_villesLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: CircularProgressIndicator(
+              strokeWidth: 2, color: SauveColors.rouge),
+        ),
+      );
+    }
+    if (_villes.isEmpty) {
+      return Text(
+        'Impossible de charger les villes. Vérifiez votre connexion.',
+        style: GoogleFonts.inter(fontSize: 12, color: SauveColors.rouge),
+      );
+    }
     return Container(
       decoration: BoxDecoration(
         color: SauveColors.carte,
         borderRadius: BorderRadius.circular(12),
-        border:
-            Border.all(color: SauveColors.grisClair, width: 1.5),
+        border: Border.all(color: SauveColors.grisClair, width: 1.5),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _ville,
+        child: DropdownButton<Ville>(
+          value: _villeSelectionnee,
           isExpanded: true,
-          style: GoogleFonts.inter(
-              fontSize: 14.5, color: SauveColors.encre),
-          items: villesEtStructures.keys
-              .map((v) =>
-                  DropdownMenuItem(value: v, child: Text(v)))
+          style: GoogleFonts.inter(fontSize: 14.5, color: SauveColors.encre),
+          items: _villes
+              .map((v) => DropdownMenuItem<Ville>(
+                    value: v,
+                    child: Text(v.nom),
+                  ))
               .toList(),
-          onChanged: (v) =>
-              setState(() => _ville = v ?? _ville),
+          onChanged: (v) => setState(() => _villeSelectionnee = v),
         ),
       ),
     );
@@ -1039,12 +1085,31 @@ class _ProfilFormState extends State<_ProfilForm> {
       return;
     }
 
+    // Vérifier qu'une ville a été sélectionnée
+    if (_villeSelectionnee == null) {
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Veuillez sélectionner votre ville.',
+            style: GoogleFonts.inter(fontSize: 13),
+          ),
+          backgroundColor: SauveColors.rouge,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
     final profil = ProfilDonneur(
       userId: state.userId!,
       groupeSanguin: _groupe,
       poids: _poids,
       genre: _genre,
-      ville: _ville,
+      villeId: _villeSelectionnee!.id,
+      villeNom: _villeSelectionnee!.nom,
       quartier: _quartier.isNotEmpty ? _quartier : null,
       contreIndications: _contreIndications,
       createdAt: DateTime.now(),

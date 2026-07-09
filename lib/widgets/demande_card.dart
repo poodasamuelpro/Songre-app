@@ -88,7 +88,7 @@ class _DemandeCardState extends State<DemandeCard>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.demande.structureSanitaire,
+                    widget.demande.structureNom,
                     style: GoogleFonts.inter(
                       fontSize: 14.5,
                       fontWeight: FontWeight.w600,
@@ -99,7 +99,7 @@ class _DemandeCardState extends State<DemandeCard>
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '${widget.demande.tempsEcoule} · ${widget.demande.ville}',
+                    '${widget.demande.tempsEcoule} · ${widget.demande.villeNom}',
                     style: GoogleFonts.inter(
                       fontSize: 12.5,
                       color: SauveColors.gris,

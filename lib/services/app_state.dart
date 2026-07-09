@@ -11,18 +11,20 @@ import '../services/supabase_service.dart';
 // APP STATE — SONGRE Production
 // Authentification : Email / Mot de passe via Supabase Auth
 // Tokens : JWT réel (access_token + refresh_token)
-// Données : backend Supabase uniquement (plus de mode démo forcé)
+// Schéma : public.* (synchronisé avec l'audit 2026-07-08)
 // =====================================================================
 class AppState extends ChangeNotifier {
   // Clés SharedPreferences (données non-sensibles)
   static const String _keyProfil        = 'songre_profil';
   static const String _keyDemandes      = 'songre_demandes';
   static const String _keyNotifications = 'songre_notifications';
+  static const String _keyVilles        = 'songre_villes';
 
   static const List<String> _toutesLesClesCache = [
     _keyProfil,
     _keyDemandes,
     _keyNotifications,
+    _keyVilles,
     // Legacy keys (migration)
     'sauve_profil',
     'sauve_demandes',
@@ -39,13 +41,16 @@ class AppState extends ChangeNotifier {
   DateTime? _dateSuppression;
   String? _authError;
 
+  // ---- Référentiels (public.villes + public.structures_sanitaires) ----
+  List<Ville> _villes = [];
+  /// Map id → nom pour résolution rapide
+  Map<int, String> _villesMap = {};
+
   // ---- Données ----
   List<DemandeSang> _demandes = [];
   List<NotificationSauve> _notifications = [];
 
   // ---- [PERF-01] Cache de compatibilité pré-calculé ----
-  // Mis à jour chaque fois que _demandes ou _profil change.
-  // Évite de recalculer estCompatibleAvec() dans chaque build() de widget.
   List<DemandeSang> _demandesCompatibles = [];
 
   // Getters
@@ -59,13 +64,12 @@ class AppState extends ChangeNotifier {
   List<DemandeSang> get demandes => _demandes;
   List<NotificationSauve> get notifications => _notifications;
   int get notifNonLues => _notifications.where((n) => !n.lue).length;
+  List<Ville> get villes => _villes;
+  Map<int, String> get villesMap => _villesMap;
 
   /// [PERF-01] Liste des demandes compatibles avec le profil courant.
-  /// Pré-calculée — jamais recalculée dans un build() de widget.
   List<DemandeSang> get demandesCompatibles => _demandesCompatibles;
 
-  /// [PERF-01] Recalcule la liste des demandes compatibles.
-  /// Appelé après chaque mise à jour de _demandes ou _profil.
   void _recalculerCompatibilite() {
     if (_profil == null) {
       _demandesCompatibles = [];
@@ -78,9 +82,6 @@ class AppState extends ChangeNotifier {
 
   // =====================================================================
   // INITIALISATION — [PERF-03] Stale-while-revalidate
-  // 1. Restaurer JWT (bloquant — nécessaire pour les headers)
-  // 2. Charger cache local IMMÉDIATEMENT + notifier l'UI
-  // 3. Rafraîchir en arrière-plan depuis le backend (non-bloquant)
   // =====================================================================
   Future<void> init() async {
     _setLoading(true);
@@ -102,9 +103,10 @@ class AppState extends ChangeNotifier {
         _isAuthenticated = true;
 
         // [PERF-03] Phase 1 : cache local → affichage immédiat
+        await _loadVillesDepuisCache();
         await _loadProfil();
         await _loadDemandesDepuisCache();
-        await _loadNotifications();
+        await _loadNotificationsDepuisCache();
         _recalculerCompatibilite();
         _setLoading(false); // ← l'UI s'affiche ici avec les données cachées
 
@@ -120,19 +122,74 @@ class AppState extends ChangeNotifier {
 
   /// [PERF-03] Rafraîchissement arrière-plan après affichage du cache.
   Future<void> _rafraichirDonneesBackground() async {
-    if (_profil == null || !SupabaseService.estConfigured) return;
+    if (!SupabaseService.estConfigured) return;
     try {
-      final demandesBackend =
-          await SupabaseService.lireDemandesActives(_profil!.ville);
-      if (demandesBackend.isNotEmpty) {
-        _demandes = demandesBackend;
-        _recalculerCompatibilite();
-        await _sauvegarderDemandes();
-        notifyListeners(); // ← second rendu avec données fraîches
+      // Rafraîchir les villes si besoin
+      if (_villes.isEmpty) {
+        await _chargerVilles();
+      }
+
+      // Rafraîchir les demandes si on a un profil avec une ville connue
+      if (_profil != null && _profil!.villeId > 0) {
+        final demandesBackend = await SupabaseService.lireDemandesActives(
+          _profil!.villeId,
+          villesMap: _villesMap,
+        );
+        if (demandesBackend.isNotEmpty) {
+          _demandes = demandesBackend;
+          _recalculerCompatibilite();
+          await _sauvegarderDemandes();
+          notifyListeners();
+        }
+      }
+
+      // Rafraîchir les notifications depuis le backend (source de vérité)
+      if (_userId != null) {
+        await _chargerNotificationsBackend();
       }
     } catch (_) {
       // Non bloquant — le cache est déjà affiché
     }
+  }
+
+  // =====================================================================
+  // VILLES — Chargement et cache
+  // =====================================================================
+
+  Future<void> _chargerVilles() async {
+    final villes = await SupabaseService.lireVilles();
+    if (villes.isNotEmpty) {
+      _villes = villes;
+      _villesMap = {for (final v in villes) v.id: v.nom};
+      await _sauvegarderVillesCache();
+    }
+  }
+
+  Future<void> _loadVillesDepuisCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final json = prefs.getString(_keyVilles);
+      if (json != null) {
+        final list = jsonDecode(json) as List;
+        _villes = list
+            .map((e) => Ville.fromJson(e as Map<String, dynamic>))
+            .toList();
+        _villesMap = {for (final v in _villes) v.id: v.nom};
+      }
+    } catch (_) {
+      _villes = [];
+      _villesMap = {};
+    }
+  }
+
+  Future<void> _sauvegarderVillesCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _keyVilles,
+        jsonEncode(_villes.map((v) => v.toJson()).toList()),
+      );
+    } catch (_) {}
   }
 
   // =====================================================================
@@ -159,7 +216,6 @@ class AppState extends ChangeNotifier {
     if (result.needsEmailConfirmation) {
       _authError = null;
       _setLoading(false);
-      // Retourner true mais sans session active (email à confirmer)
       return true;
     }
 
@@ -168,8 +224,6 @@ class AppState extends ChangeNotifier {
       await SecureStorageService.sauvegarderSession(
         userId: _userId!,
         accessToken: result.accessToken!,
-        // [1.3] Persister le vrai refresh_token — peut être absent si email
-        // confirmation est requise (session=null), on stocke '' dans ce cas.
         refreshToken: SupabaseService.refreshTokenCourant ?? '',
         authType: 'email',
       );
@@ -205,15 +259,18 @@ class AppState extends ChangeNotifier {
     await SecureStorageService.sauvegarderSession(
       userId: _userId!,
       accessToken: result.accessToken!,
-      // [1.3] Persister le vrai refresh_token reçu de Supabase Auth
       refreshToken: SupabaseService.refreshTokenCourant ?? '',
       authType: 'email',
     );
     _isAuthenticated = true;
+
+    // Charger les référentiels + données métier
+    await _chargerVilles();
     await _loadProfil();
     await _loadDemandes();
-    await _loadNotifications();
-    _recalculerCompatibilite(); // [PERF-01]
+    // Notifications depuis le backend (source de vérité)
+    await _chargerNotificationsBackend();
+    _recalculerCompatibilite();
 
     _setLoading(false);
     return true;
@@ -223,7 +280,7 @@ class AppState extends ChangeNotifier {
   // DÉCONNEXION — Invalide le JWT côté Supabase + purge locale
   // =====================================================================
   Future<void> seDeconnecter() async {
-    await SupabaseService.deconnecter(); // POST /auth/v1/logout
+    await SupabaseService.deconnecter();
     await _purgerSessionLocale();
   }
 
@@ -241,6 +298,8 @@ class AppState extends ChangeNotifier {
     _dateSuppression = null;
     _demandes = [];
     _notifications = [];
+    _villes = [];
+    _villesMap = {};
     _authError = null;
     notifyListeners();
   }
@@ -273,7 +332,7 @@ class AppState extends ChangeNotifier {
       dateDon: dateDon,
       source: SourceDon.declaratif,
     );
-    _ajouterNotification(NotificationSauve(
+    _ajouterNotificationLocale(NotificationSauve(
       id: _genId(),
       type: TypeNotification.donConfirme,
       message: 'Votre don a été enregistré. Merci pour votre générosité.',
@@ -284,10 +343,15 @@ class AppState extends ChangeNotifier {
   // =====================================================================
   // DEMANDES
   // =====================================================================
+
+  /// Publie une nouvelle demande de sang.
+  /// Accepte les IDs entiers (ville_id, structure_id) depuis le schéma réel.
   Future<CreationDemandeResult> publierDemande({
     required GroupeSanguin groupeSanguin,
-    required String ville,
-    required String structureSanitaire,
+    required int? villeId,
+    required int? structureId,
+    String? villeLibre,
+    String? structureLibre,
     required String contactPrincipal,
     String? contactSecondaire,
   }) async {
@@ -299,8 +363,10 @@ class AppState extends ChangeNotifier {
     final result = await SupabaseService.creerDemande(
       userId: _userId!,
       groupeSanguin: groupeSanguin,
-      ville: ville,
-      structureSanitaire: structureSanitaire,
+      villeId: villeId,
+      structureId: structureId,
+      villeLibre: villeLibre,
+      structureLibre: structureLibre,
       contactPrincipal: contactPrincipal,
       contactSecondaire: contactSecondaire,
     );
@@ -308,11 +374,15 @@ class AppState extends ChangeNotifier {
     if (result.success && result.demande != null) {
       _demandes.insert(0, result.demande!);
       await _sauvegarderDemandes();
-      _ajouterNotification(NotificationSauve(
+      final villeAffichage = villeId != null
+          ? (_villesMap[villeId] ?? villeLibre ?? '')
+          : (villeLibre ?? '');
+      _ajouterNotificationLocale(NotificationSauve(
         id: _genId(),
         type: TypeNotification.demandeCompatible,
         message:
-            'Votre demande de sang ${groupeSanguin.label} a été publiée à $ville.',
+            'Votre demande de sang ${groupeSanguin.label} a été publiée'
+            '${villeAffichage.isNotEmpty ? " à $villeAffichage" : ""}.',
         createdAt: DateTime.now(),
       ));
       notifyListeners();
@@ -320,17 +390,45 @@ class AppState extends ChangeNotifier {
     return result;
   }
 
-  /// Charge les demandes depuis le backend — fallback cache local uniquement
+  /// Actualise les demandes depuis le backend.
   Future<void> actualiserDemandes() async {
     if (_profil == null) return;
-    final demandesBackend =
-        await SupabaseService.lireDemandesActives(_profil!.ville);
+    if (_profil!.villeId <= 0) return;
+    final demandesBackend = await SupabaseService.lireDemandesActives(
+      _profil!.villeId,
+      villesMap: _villesMap,
+    );
     if (demandesBackend.isNotEmpty) {
       _demandes = demandesBackend;
+      _recalculerCompatibilite();
       await _sauvegarderDemandes();
       notifyListeners();
     }
-    // Pas de fallback démo en production
+  }
+
+  // =====================================================================
+  // NOTIFICATIONS — Source de vérité : public.notifications_envoyees
+  // =====================================================================
+
+  /// Charge les notifications depuis le backend (source de vérité).
+  /// Met à jour le cache local après chaque chargement réussi.
+  Future<void> _chargerNotificationsBackend() async {
+    if (_userId == null || !SupabaseService.estConfigured) return;
+    try {
+      final notifs = await SupabaseService.lireNotifications(_userId!);
+      if (notifs.isNotEmpty) {
+        _notifications = notifs;
+        await _sauvegarderNotifications();
+        notifyListeners();
+      }
+    } catch (_) {
+      // Non bloquant — fallback cache déjà chargé
+    }
+  }
+
+  /// Actualise l'onglet notifications depuis le backend.
+  Future<void> actualiserNotifications() async {
+    await _chargerNotificationsBackend();
   }
 
   // =====================================================================
@@ -343,7 +441,7 @@ class AppState extends ChangeNotifier {
       demandeId: demandeId,
     );
     if (ok) {
-      _ajouterNotification(NotificationSauve(
+      _ajouterNotificationLocale(NotificationSauve(
         id: _genId(),
         type: TypeNotification.demandeCompatible,
         message: 'Votre réponse a été enregistrée. Rendez-vous sur place.',
@@ -356,20 +454,15 @@ class AppState extends ChangeNotifier {
   // =====================================================================
   // QR TOKEN — [PERF-05] Déduplication avant création
   // =====================================================================
-  /// [PERF-05] Vérifie d'abord si un token QR valide (non expiré, non
-  /// utilisé) existe déjà pour le couple donneur+demande. Évite la
-  /// multiplication de tokens orphelins en base.
   Future<String?> genererQrToken(String demandeId) async {
     if (_userId == null) return null;
 
-    // Chercher un token existant valide — évite de créer des doublons
     final tokenExistant = await SupabaseService.lireTokenQrExistant(
       donneurId: _userId!,
       demandeId: demandeId,
     );
     if (tokenExistant != null) return tokenExistant;
 
-    // Créer un nouveau token uniquement si aucun valide n'existe
     final result = await SupabaseService.creerToken(_userId!, demandeId);
     if (result.success) return result.tokenOpaque;
     return null;
@@ -380,12 +473,10 @@ class AppState extends ChangeNotifier {
   // =====================================================================
   Future<bool> programmerSuppression() async {
     if (_userId == null) return false;
-    final ok =
-        await SupabaseService.programmerSuppression(_userId!);
+    final ok = await SupabaseService.programmerSuppression(_userId!);
     if (ok) {
       _suppressionProgrammee = true;
-      _dateSuppression =
-          DateTime.now().add(const Duration(days: 5));
+      _dateSuppression = DateTime.now().add(const Duration(days: 5));
       notifyListeners();
     }
     return ok;
@@ -393,8 +484,7 @@ class AppState extends ChangeNotifier {
 
   Future<bool> annulerSuppression() async {
     if (_userId == null) return false;
-    final ok =
-        await SupabaseService.annulerSuppression(_userId!);
+    final ok = await SupabaseService.annulerSuppression(_userId!);
     if (ok) {
       _suppressionProgrammee = false;
       _dateSuppression = null;
@@ -411,14 +501,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _ajouterNotification(NotificationSauve notif) {
+  /// Ajoute une notification locale (actions client-side) sans appel réseau.
+  void _ajouterNotificationLocale(NotificationSauve notif) {
     _notifications.insert(0, notif);
     _sauvegarderNotifications();
     notifyListeners();
   }
 
-  String _genId() =>
-      DateTime.now().millisecondsSinceEpoch.toString();
+  String _genId() => DateTime.now().millisecondsSinceEpoch.toString();
 
   Future<void> _loadProfil() async {
     final prefs = await SharedPreferences.getInstance();
@@ -435,13 +525,16 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadDemandes() async {
-    // Tenter d'abord le backend
-    if (_profil != null && SupabaseService.estConfigured) {
-      final demandesBackend =
-          await SupabaseService.lireDemandesActives(_profil!.ville);
+    if (_profil != null &&
+        _profil!.villeId > 0 &&
+        SupabaseService.estConfigured) {
+      final demandesBackend = await SupabaseService.lireDemandesActives(
+        _profil!.villeId,
+        villesMap: _villesMap,
+      );
       if (demandesBackend.isNotEmpty) {
         _demandes = demandesBackend;
-        _recalculerCompatibilite(); // [PERF-01]
+        _recalculerCompatibilite();
         await _sauvegarderDemandes();
         return;
       }
@@ -449,11 +542,8 @@ class AppState extends ChangeNotifier {
     await _loadDemandesDepuisCache();
   }
 
-  /// [PERF-03] Charge uniquement depuis le cache local (sans appel réseau).
-  /// Utilisé par init() pour un affichage immédiat, avant le rafraîchissement
-  /// arrière-plan.
+  /// [PERF-03] Charge uniquement depuis le cache local.
   Future<void> _loadDemandesDepuisCache() async {
-    // Fallback : cache local
     final prefs = await SharedPreferences.getInstance();
     final json = prefs.getString(_keyDemandes) ??
         prefs.getString('sauve_demandes'); // migration
@@ -461,17 +551,22 @@ class AppState extends ChangeNotifier {
       try {
         final list = jsonDecode(json) as List;
         _demandes = list
-            .map((e) => DemandeSang.fromJson(e as Map<String, dynamic>))
+            .map((e) => DemandeSang.fromJson(
+                  e as Map<String, dynamic>,
+                  villesMap: _villesMap,
+                ))
             .where((d) => d.estActive)
             .toList();
-        _recalculerCompatibilite(); // [PERF-01]
+        _recalculerCompatibilite();
       } catch (_) {
         _demandes = [];
       }
     }
   }
 
-  Future<void> _loadNotifications() async {
+  /// Charge les notifications depuis le cache local (fallback hors-ligne).
+  /// La source de vérité est _chargerNotificationsBackend().
+  Future<void> _loadNotificationsDepuisCache() async {
     final prefs = await SharedPreferences.getInstance();
     final json = prefs.getString(_keyNotifications) ??
         prefs.getString('sauve_notifications'); // migration
@@ -479,41 +574,31 @@ class AppState extends ChangeNotifier {
       try {
         final list = jsonDecode(json) as List;
         _notifications = list
-            .map((e) => NotificationSauve(
-                  id: e['id'] as String,
-                  type: TypeNotification.values[e['type'] as int],
-                  message: e['message'] as String,
-                  createdAt: DateTime.parse(e['created_at'] as String),
-                  lue: e['lue'] as bool? ?? false,
-                ))
+            .map((e) => NotificationSauve.fromJson(e as Map<String, dynamic>))
             .toList();
-        if (_notifications.isNotEmpty) return;
       } catch (_) {
-        // fallthrough
+        _notifications = [];
       }
     }
-    // Pas de données démo en production
   }
 
   Future<void> _sauvegarderDemandes() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _keyDemandes,
-      jsonEncode(_demandes.map((d) => d.toJson()).toList()),
-    );
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _keyDemandes,
+        jsonEncode(_demandes.map((d) => d.toJson()).toList()),
+      );
+    } catch (_) {}
   }
 
   Future<void> _sauvegarderNotifications() async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = _notifications
-        .map((n) => {
-              'id': n.id,
-              'type': n.type.index,
-              'message': n.message,
-              'created_at': n.createdAt.toIso8601String(),
-              'lue': n.lue,
-            })
-        .toList();
-    await prefs.setString(_keyNotifications, jsonEncode(list));
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _keyNotifications,
+        jsonEncode(_notifications.map((n) => n.toJson()).toList()),
+      );
+    } catch (_) {}
   }
 }
