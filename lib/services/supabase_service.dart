@@ -8,11 +8,8 @@ import '../utils/secure_storage_service.dart';
 // =====================================================================
 // SERVICE SUPABASE — Production SONGRE
 //
-// Configuration via --dart-define :
-//   SUPABASE_URL=https://ptomqwucvveuflfnyczo.supabase.co
-//   SUPABASE_ANON_KEY=eyJ...
-//   SONGRE_ENCRYPT_KEY=<32 chars minimum>
-//   WEBHOOK_SECRET=<secret partagé avec l'Edge Function valider-token>
+// Les clés de production sont embarquées directement (fallback hardcodé).
+// Elles peuvent aussi être surchargées via --dart-define au build.
 //
 // Authentification : Email / Mot de passe via Supabase Auth
 // Token : JWT signé retourné par /auth/v1/token?grant_type=password
@@ -22,19 +19,35 @@ import '../utils/secure_storage_service.dart';
 //             Elle est injectée exclusivement dans les Edge Functions
 //             via les secrets Supabase Dashboard.
 // =====================================================================
+
+// Clés de production SONGRE (embarquées pour garantir le fonctionnement APK)
+const String _kSupabaseUrlProd =
+    'https://ptomqwucvveuflfnyczo.supabase.co';
+const String _kAnonKeyProd =
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+    '.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0b21xd3VjdnZldWZsZm55Y3pvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0NjE4MDEsImV4cCI6MjA5OTAzNzgwMX0'
+    '.5ATdPSNn5YxNKWyOu08NA4fj-hQYypF5StdN3z4-Efg';
+
 class SupabaseService {
   SupabaseService._();
 
-  static const String _supabaseUrl =
-      String.fromEnvironment('SUPABASE_URL', defaultValue: '');
-  static const String _anonKey =
-      String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+  // dart-define a la priorité ; sinon on utilise les constantes de production
+  static const String _supabaseUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: _kSupabaseUrlProd,
+  );
+  static const String _anonKey = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+    defaultValue: _kAnonKeyProd,
+  );
 
   /// Secret partagé requis par l'Edge Function valider-token (étape 0).
   /// Injecté via --dart-define=WEBHOOK_SECRET=...
   /// Valeur Supabase Vault : "Donnersonsangcestsauvezdesvie-songre2026burkinafaso@"
-  static const String _webhookSecret =
-      String.fromEnvironment('WEBHOOK_SECRET', defaultValue: '');
+  static const String _webhookSecret = String.fromEnvironment(
+    'WEBHOOK_SECRET',
+    defaultValue: 'Donnersonsangcestsauvezdesvie-songre2026burkinafaso@',
+  );
 
   /// JWT retourné par Supabase Auth — sert de Bearer token
   static String? _accessToken;
@@ -239,6 +252,48 @@ class SupabaseService {
       _accessToken = null;
       _refreshToken = null;
       _currentUserId = null;
+    }
+  }
+
+  /// Envoie un email de réinitialisation de mot de passe via Supabase Auth.
+  /// Retourne true si l'email a été envoyé, false sinon.
+  /// L'email arrive avec un lien magique qui redirige vers l'app.
+  static Future<ResetPasswordResult> envoyerEmailReinitialisation(
+      String email) async {
+    if (!estConfigured) {
+      return const ResetPasswordResult(
+        success: false,
+        error: 'Backend non configuré.',
+      );
+    }
+    try {
+      final resp = await http.post(
+        Uri.parse('$_supabaseUrl/auth/v1/recover'),
+        headers: _headers(),
+        body: jsonEncode({'email': email}),
+      ).timeout(const Duration(seconds: 15));
+
+      // Supabase retourne 200 même si l'email n'existe pas (sécurité)
+      if (resp.statusCode == 200) {
+        return const ResetPasswordResult(success: true);
+      }
+
+      String errMsg = 'Erreur lors de l\'envoi (${resp.statusCode})';
+      try {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        errMsg = data['error_description'] as String? ??
+            data['msg'] as String? ??
+            errMsg;
+      } catch (_) {}
+      return ResetPasswordResult(success: false, error: errMsg);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] envoyerEmailReinitialisation error: $e');
+      }
+      return const ResetPasswordResult(
+        success: false,
+        error: 'Connexion impossible. Vérifiez votre réseau.',
+      );
     }
   }
 
@@ -1333,4 +1388,15 @@ class ContactResult {
   final String? error;
 
   const ContactResult({required this.success, this.error});
+}
+
+// =====================================================================
+// MODÈLE — ResetPasswordResult (Mot de passe oublié)
+// =====================================================================
+
+class ResetPasswordResult {
+  final bool success;
+  final String? error;
+
+  const ResetPasswordResult({required this.success, this.error});
 }
