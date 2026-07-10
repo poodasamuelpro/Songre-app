@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'theme/sauve_theme.dart';
@@ -11,7 +12,14 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialiser Firebase (requis pour FCM notifications push)
-  await Firebase.initializeApp();
+  // try/catch : si Firebase échoue (pas de réseau, config manquante),
+  // l'app continue quand même — les notifs push ne seront pas disponibles
+  // mais l'app reste fonctionnelle.
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    if (kDebugMode) debugPrint('[main] Firebase.initializeApp failed: $e');
+  }
 
   // Initialiser les formats de dates en français
   await initializeDateFormatting('fr_FR', null);
@@ -28,20 +36,34 @@ void main() async {
   );
 }
 
-class SauveApp extends StatelessWidget {
+class SauveApp extends StatefulWidget {
   final AppState appState;
 
   const SauveApp({super.key, required this.appState});
 
   @override
-  Widget build(BuildContext context) {
-    final router = buildRouter(appState);
+  State<SauveApp> createState() => _SauveAppState();
+}
 
+class _SauveAppState extends State<SauveApp> {
+  // Le router est créé UNE SEULE FOIS et conservé dans le State.
+  // Si on le recrée dans build(), chaque notifyListeners() détruirait
+  // l'état de navigation → écran noir / flash blanc.
+  late final GoRouter _router;
+
+  @override
+  void initState() {
+    super.initState();
+    _router = buildRouter(widget.appState);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return MaterialApp.router(
       title: 'SONGRE',
       debugShowCheckedModeBanner: false,
       theme: SauveTheme.light,
-      routerConfig: router,
+      routerConfig: _router,
       // Localisation française
       locale: const Locale('fr', 'FR'),
       builder: (context, child) {

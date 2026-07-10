@@ -220,6 +220,10 @@ class AppState extends ChangeNotifier {
     }
 
     if (result.userId != null && result.accessToken != null) {
+      // On mémorise l'userId pour que sauvegarderProfil() puisse écrire en DB.
+      // On NE met PAS _isAuthenticated=true ici — c'est sauvegarderProfil()
+      // qui le fera après création du profil, évitant que GoRouter redirige
+      // vers /completer-profil AVANT que l'utilisateur ait soumis le formulaire.
       _userId = result.userId;
       await SecureStorageService.sauvegarderSession(
         userId: _userId!,
@@ -227,7 +231,8 @@ class AppState extends ChangeNotifier {
         refreshToken: SupabaseService.refreshTokenCourant ?? '',
         authType: 'email',
       );
-      _isAuthenticated = true;
+      // NE PAS appeler notifyListeners() ici — on n'est pas encore authentifié
+      // du point de vue de l'application (le profil n'est pas encore créé).
     }
 
     _setLoading(false);
@@ -311,22 +316,21 @@ class AppState extends ChangeNotifier {
   Future<void> sauvegarderProfil(ProfilDonneur profil) async {
     _profil = profil;
 
-    // [Fix #3] Si l'utilisateur vient de terminer l'inscription (step 2→3),
-    // userId est dans SupabaseService mais _isAuthenticated peut encore être false
-    // (le flux inscription ne passe pas par connecter()). On s'assure que la
-    // session est bien marquée authentifiée avant notifyListeners() pour que
-    // GoRouter puisse naviguer vers /home au lieu de reboucler sur '/'.
+    // [Fix #3] Après inscription, _userId est défini mais _isAuthenticated=false.
+    // On finalise l'authentification ici, une fois le profil prêt.
+    // Fallback : si userId vient de SupabaseService (ex: connexion directe).
     if (_userId == null && SupabaseService.currentUserId != null) {
       _userId = SupabaseService.currentUserId;
     }
-    if (_userId != null && !_isAuthenticated) {
+    // Marquer comme authentifié maintenant que le profil est créé
+    if (_userId != null) {
       _isAuthenticated = true;
     }
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyProfil, jsonEncode(profil.toJson()));
     await SupabaseService.creerOuMettreAJourProfil(profil);
-    notifyListeners();
+    notifyListeners(); // GoRouter voit isAuth=true + hasProfil=true → redirige vers /home
   }
 
   Future<void> toggleDisponibilite() async {
