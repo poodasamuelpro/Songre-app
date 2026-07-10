@@ -132,7 +132,14 @@ class SupabaseService {
       final msg = data['error_description'] as String? ??
           data['msg'] as String? ??
           'Erreur lors de l\'inscription (${resp.statusCode})';
-      return AuthResult(success: false, error: msg);
+
+      // Message explicite pour le cas HTTP 500 "Database error saving new user"
+      // (trigger Supabase défaillant — nécessite intervention admin DB)
+      final finalMsg = (resp.statusCode == 500 &&
+              msg.toLowerCase().contains('database error'))
+          ? 'Inscription temporairement indisponible. Merci de réessayer dans quelques minutes ou contacter le support.'
+          : msg;
+      return AuthResult(success: false, error: finalMsg);
     } catch (e) {
       if (kDebugMode) debugPrint('[SupabaseService] inscrire error: $e');
       return const AuthResult(

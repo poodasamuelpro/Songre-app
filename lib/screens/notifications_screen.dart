@@ -7,6 +7,8 @@ import '../models/models.dart';
 
 // =====================================================================
 // ÉCRAN 6 — Notifications / Alertes
+// Tap sur une notification → marque comme lue (optimiste + backend)
+// Bouton "Tout lire" → marque toutes les notifications comme lues
 // =====================================================================
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({super.key});
@@ -21,7 +23,7 @@ class NotificationsScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            // Top bar
+            // ── Top bar ─────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
               child: Row(
@@ -36,33 +38,62 @@ class NotificationsScreen extends StatelessWidget {
                     ),
                   ),
                   if (state.notifNonLues > 0)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: SauveColors.rouge,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${state.notifNonLues} nouvelle${state.notifNonLues > 1 ? 's' : ''}',
-                        style: GoogleFonts.inter(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: SauveColors.rouge,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '${state.notifNonLues} nouvelle${state.notifNonLues > 1 ? 's' : ''}',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        // Bouton "Tout lire"
+                        GestureDetector(
+                          onTap: () =>
+                              context.read<AppState>().marquerToutesLues(),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: SauveColors.carte,
+                              borderRadius: BorderRadius.circular(20),
+                              border:
+                                  Border.all(color: SauveColors.grisClair),
+                            ),
+                            child: Text(
+                              'Tout lire',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: SauveColors.gris,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                 ],
               ),
             ),
-            // Liste
+            // ── Liste ───────────────────────────────────────────────
             Expanded(
               child: notifs.isEmpty
                   ? _buildVide()
                   : ListView.builder(
                       padding: const EdgeInsets.only(top: 8),
                       itemCount: notifs.length,
-                      itemBuilder: (ctx, i) => _NotifItem(notif: notifs[i]),
+                      itemBuilder: (ctx, i) =>
+                          _NotifItem(notif: notifs[i]),
                     ),
             ),
           ],
@@ -90,7 +121,8 @@ class NotificationsScreen extends StatelessWidget {
           Text(
             'Vous serez alerté(e) dès qu\'une demande\ncompatible est publiée près de vous.',
             textAlign: TextAlign.center,
-            style: GoogleFonts.inter(fontSize: 13, color: SauveColors.gris),
+            style:
+                GoogleFonts.inter(fontSize: 13, color: SauveColors.gris),
           ),
         ],
       ),
@@ -98,6 +130,9 @@ class NotificationsScreen extends StatelessWidget {
   }
 }
 
+// =====================================================================
+// Item notification — cliquable pour marquer comme lu
+// =====================================================================
 class _NotifItem extends StatelessWidget {
   final NotificationSauve notif;
 
@@ -105,29 +140,24 @@ class _NotifItem extends StatelessWidget {
 
   Color get _dotColor {
     switch (notif.type) {
-      // ── Alertes sang / urgences ─────────────────────────────────────
       case TypeNotification.demandeCompatible:
         return SauveColors.rouge;
-      // ── Confirmations de don ────────────────────────────────────────
       case TypeNotification.donConfirme:
       case TypeNotification.donConfirmeDemandeur:
       case TypeNotification.donEnregistreManuel:
         return SauveColors.vert;
-      // ── Réponses de donneurs ────────────────────────────────────────
       case TypeNotification.reponseRecue:
-        return const Color(0xFF1565C0); // bleu marine
+        return const Color(0xFF1565C0);
       case TypeNotification.reponseEncouragement:
-        return const Color(0xFF0288D1); // bleu clair
-      // ── Retour éligibilité ──────────────────────────────────────────
+        return const Color(0xFF0288D1);
       case TypeNotification.retourEligibilite:
         return SauveColors.grisClair;
-      // ── Système / compte ────────────────────────────────────────────
       case TypeNotification.suppressionDemandee:
-        return const Color(0xFFE65100); // orange foncé
+        return const Color(0xFFE65100);
       case TypeNotification.bienvenue:
-        return const Color(0xFF388E3C); // vert foncé
+        return const Color(0xFF388E3C);
       case TypeNotification.mdpModifie:
-        return const Color(0xFF6A1B9A); // violet
+        return const Color(0xFF6A1B9A);
     }
   }
 
@@ -156,72 +186,92 @@ class _NotifItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: notif.lue ? SauveColors.carte : Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: notif.lue ? SauveColors.grisClair : SauveColors.rouge.withValues(alpha: 0.2),
+    return GestureDetector(
+      onTap: notif.lue
+          ? null
+          : () =>
+              context.read<AppState>().marquerNotificationLue(notif.id),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: notif.lue ? SauveColors.carte : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: notif.lue
+                ? SauveColors.grisClair
+                : SauveColors.rouge.withValues(alpha: 0.2),
+          ),
+          boxShadow: !notif.lue
+              ? [
+                  BoxShadow(
+                    color: SauveColors.rouge.withValues(alpha: 0.05),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  )
+                ]
+              : null,
         ),
-        boxShadow: !notif.lue
-            ? [
-                BoxShadow(
-                  color: SauveColors.rouge.withValues(alpha: 0.05),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                )
-              ]
-            : null,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Icône colorée (type-aware — correction R-03)
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: _dotColor.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                _iconForType,
-                size: 17,
-                color: _dotColor,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Icône colorée
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: _dotColor.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _iconForType,
+                  size: 17,
+                  color: _dotColor,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          // Contenu
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  notif.message,
-                  style: GoogleFonts.inter(
-                    fontSize: 13.5,
-                    color: SauveColors.encre,
-                    height: 1.4,
-                    fontWeight: notif.lue ? FontWeight.w400 : FontWeight.w500,
+            const SizedBox(width: 12),
+            // Contenu
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    notif.message,
+                    style: GoogleFonts.inter(
+                      fontSize: 13.5,
+                      color: SauveColors.encre,
+                      height: 1.4,
+                      fontWeight:
+                          notif.lue ? FontWeight.w400 : FontWeight.w500,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  notif.tempsEcoule,
-                  style: GoogleFonts.inter(
-                    fontSize: 11.5,
-                    color: SauveColors.gris,
+                  const SizedBox(height: 5),
+                  Text(
+                    notif.tempsEcoule,
+                    style: GoogleFonts.inter(
+                      fontSize: 11.5,
+                      color: SauveColors.gris,
+                    ),
                   ),
-                ),
-              ],
+                  if (!notif.lue) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'Appuyer pour marquer comme lu',
+                      style: GoogleFonts.inter(
+                        fontSize: 10.5,
+                        color: SauveColors.rouge.withValues(alpha: 0.55),
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

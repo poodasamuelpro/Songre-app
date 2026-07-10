@@ -266,7 +266,8 @@ class AppState extends ChangeNotifier {
 
     // Charger les référentiels + données métier
     await _chargerVilles();
-    await _loadProfil();
+    // Essayer le backend d'abord, puis le cache local
+    await _loadProfilAvecFallback();
     await _loadDemandes();
     // Notifications depuis le backend (source de vérité)
     await _chargerNotificationsBackend();
@@ -439,6 +440,61 @@ class AppState extends ChangeNotifier {
     await _chargerNotificationsBackend();
   }
 
+  /// Marque une notification comme lue (optimiste + backend).
+  /// Met à jour le cache local immédiatement, puis persiste en base.
+  Future<void> marquerNotificationLue(String notifId) async {
+    // Mise à jour optimiste locale
+    final idx = _notifications.indexWhere((n) => n.id == notifId);
+    if (idx == -1) return;
+    final notif = _notifications[idx];
+    if (notif.lue) return; // déjà lue, rien à faire
+
+    // Remplacer par une version marquée lue (modèle immutable)
+    _notifications[idx] = NotificationSauve(
+      id: notif.id,
+      type: notif.type,
+      message: notif.message,
+      createdAt: notif.createdAt,
+      lue: true,
+      demandeId: notif.demandeId,
+    );
+    await _sauvegarderNotifications();
+    notifyListeners();
+
+    // Persistance backend (fire-and-forget — non bloquant)
+    if (_userId != null && SupabaseService.estConfigured) {
+      SupabaseService.marquerNotificationLue(notifId).catchError((_) => false);
+    }
+  }
+
+  /// Marque toutes les notifications non lues comme lues.
+  Future<void> marquerToutesLues() async {
+    final nonLues = _notifications.where((n) => !n.lue).toList();
+    if (nonLues.isEmpty) return;
+
+    // Mise à jour optimiste locale
+    _notifications = _notifications.map((n) {
+      if (n.lue) return n;
+      return NotificationSauve(
+        id: n.id,
+        type: n.type,
+        message: n.message,
+        createdAt: n.createdAt,
+        lue: true,
+        demandeId: n.demandeId,
+      );
+    }).toList();
+    await _sauvegarderNotifications();
+    notifyListeners();
+
+    // Backend : une requête par notification (fire-and-forget)
+    if (_userId != null && SupabaseService.estConfigured) {
+      for (final n in nonLues) {
+        SupabaseService.marquerNotificationLue(n.id).catchError((_) => false);
+      }
+    }
+  }
+
   // =====================================================================
   // RÉPONSE DONNEUR — Persistée en base
   // =====================================================================
@@ -530,6 +586,31 @@ class AppState extends ChangeNotifier {
         _profil = null;
       }
     }
+  }
+
+  /// Charge le profil en essayant d'abord le backend (source de vérité),
+  /// avec fallback sur le cache local si le backend échoue ou est vide.
+  Future<void> _loadProfilAvecFallback() async {
+    // 1. Essayer le backend (source de vérité)
+    if (_userId != null && SupabaseService.estConfigured) {
+      try {
+        final profilBackend = await SupabaseService.lireProfil(
+          _userId!,
+          villesMap: _villesMap,
+        );
+        if (profilBackend != null) {
+          _profil = profilBackend;
+          // Mettre à jour le cache local avec les données backend fraîches
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_keyProfil, jsonEncode(profilBackend.toJson()));
+          return;
+        }
+      } catch (_) {
+        // Backend inaccessible — fallback cache ci-dessous
+      }
+    }
+    // 2. Fallback sur le cache local
+    await _loadProfil();
   }
 
   Future<void> _loadDemandes() async {
