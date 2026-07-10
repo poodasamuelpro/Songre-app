@@ -1,4 +1,4 @@
-package com.lifesaver.sauve
+package com.lifesaver.save
 
 import io.flutter.embedding.android.FlutterActivity
 

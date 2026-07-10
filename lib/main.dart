@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'theme/sauve_theme.dart';
 import 'services/app_state.dart';
 import 'router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialiser Firebase (requis pour FCM notifications push)
+  await Firebase.initializeApp();
 
   // Initialiser les formats de dates en français
   await initializeDateFormatting('fr_FR', null);
