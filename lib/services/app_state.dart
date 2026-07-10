@@ -310,6 +310,19 @@ class AppState extends ChangeNotifier {
   // =====================================================================
   Future<void> sauvegarderProfil(ProfilDonneur profil) async {
     _profil = profil;
+
+    // [Fix #3] Si l'utilisateur vient de terminer l'inscription (step 2→3),
+    // userId est dans SupabaseService mais _isAuthenticated peut encore être false
+    // (le flux inscription ne passe pas par connecter()). On s'assure que la
+    // session est bien marquée authentifiée avant notifyListeners() pour que
+    // GoRouter puisse naviguer vers /home au lieu de reboucler sur '/'.
+    if (_userId == null && SupabaseService.currentUserId != null) {
+      _userId = SupabaseService.currentUserId;
+    }
+    if (_userId != null && !_isAuthenticated) {
+      _isAuthenticated = true;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyProfil, jsonEncode(profil.toJson()));
     await SupabaseService.creerOuMettreAJourProfil(profil);

@@ -127,7 +127,16 @@ class _NouvelleDemandeState extends State<NouvelleDemande> {
       setState(() {
         _structures = structures;
         _structuresLoading = false;
-        _structureSelectionnee = structures.isNotEmpty ? structures.first : null;
+        if (structures.isNotEmpty) {
+          // Pré-sélectionner la première structure disponible
+          _structureSelectionnee = structures.first;
+          _structureEstLibre = false;
+        } else {
+          // [Fix #2] Aucune structure dans la DB pour cette ville →
+          // activer le mode saisie libre pour ne pas bloquer l'utilisateur
+          _structureSelectionnee = null;
+          _structureEstLibre = true;
+        }
       });
     } catch (_) {
       if (!mounted) return;

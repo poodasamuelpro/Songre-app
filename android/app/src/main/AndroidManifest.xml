@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="@string/app_name"
+        android:label="Life Saver"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -20,9 +20,35 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- Lanceur principal -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- [Fix #1a] Deep linking — schéma personnalisé songre://
+                 Intercepte les liens de réinitialisation de mot de passe :
+                 songre://reset-password?access_token=xxx&type=recovery
+                 Supabase redirige vers ce schéma depuis l'email de reset. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="songre"/>
+            </intent-filter>
+
+            <!-- Deep linking HTTPS — https://songre.vercel.app/reset-password
+                 Fallback web : si l'app n'est pas installée, le navigateur
+                 ouvre la page Vercel. Si elle est installée, Android propose
+                 d'ouvrir l'application. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="https"
+                    android:host="songre.vercel.app"
+                    android:pathPrefix="/reset-password"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
@@ -43,4 +69,6 @@
         </intent>
     </queries>
 </manifest>
+
+
 

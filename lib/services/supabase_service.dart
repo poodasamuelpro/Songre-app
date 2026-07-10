@@ -57,6 +57,11 @@ class SupabaseService {
   static bool get estConfigured =>
       _supabaseUrl.isNotEmpty && _anonKey.isNotEmpty;
 
+  /// URL et clé anon exposées pour les écrans qui appellent Supabase directement
+  /// (ex : ResetPasswordScreen — évite la duplication des clés)
+  static String get supabaseUrl => _supabaseUrl;
+  static String get anonKey => _anonKey;
+
   static String? get currentUserId => _currentUserId;
 
   /// Expose le refresh token courant (lecture seule) pour persistance

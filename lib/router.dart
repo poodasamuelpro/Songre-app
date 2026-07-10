@@ -12,6 +12,7 @@ import '../screens/login_screen.dart';
 import '../screens/nouvelle_demande_screen.dart';
 import '../screens/detail_demande_screen.dart';
 import '../screens/scan_qr_screen.dart';
+import '../screens/reset_password_screen.dart';
 import '../models/models.dart';
 
 // =====================================================================
@@ -29,9 +30,18 @@ GoRouter buildRouter(AppState appState) {
     initialLocation: '/',
     redirect: (ctx, state) {
       final isAuth = appState.isAuthenticated;
+      final isLoading = appState.isLoading;
       final hasProfil = appState.profil != null;
       final isLogin = state.matchedLocation == '/';
       final isCompleteProfil = state.matchedLocation == '/completer-profil';
+      final isResetPassword = state.matchedLocation == '/reset-password';
+
+      // [Fix #4] Ne pas rediriger pendant le chargement — évite les boucles
+      // auth quand _loadProfilAvecFallback() est en cours et profil == null.
+      if (isLoading) return null;
+
+      // La page reset-password est accessible sans authentification
+      if (isResetPassword) return null;
 
       // Non authentifié → login (sauf déjà sur login)
       if (!isAuth && !isLogin) return '/';
@@ -89,6 +99,28 @@ GoRouter buildRouter(AppState appState) {
             return FadeTransition(opacity: animation, child: child);
           },
         ),
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/reset-password',
+        pageBuilder: (ctx, state) {
+          // Extraire le token depuis les query params du deep link
+          // songre://reset-password?access_token=xxx&type=recovery
+          // ou depuis l'URL web https://songre.vercel.app/reset-password#access_token=xxx
+          final accessToken = state.uri.queryParameters['access_token'] ??
+              state.uri.queryParameters['token'] ??
+              '';
+          final type = state.uri.queryParameters['type'] ?? '';
+          return CustomTransitionPage(
+            child: ResetPasswordScreen(
+              accessToken: accessToken,
+              type: type,
+            ),
+            transitionsBuilder: (ctx, animation, _, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+          );
+        },
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
