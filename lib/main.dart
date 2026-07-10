@@ -11,20 +11,18 @@ import 'router.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialiser Firebase (requis pour FCM notifications push)
-  // try/catch : si Firebase échoue (pas de réseau, config manquante),
-  // l'app continue quand même — les notifs push ne seront pas disponibles
-  // mais l'app reste fonctionnelle.
+  // Firebase — protégé par try/catch pour éviter un crash si le réseau
+  // est indisponible ou si google-services.json est incomplet.
   try {
     await Firebase.initializeApp();
   } catch (e) {
-    if (kDebugMode) debugPrint('[main] Firebase.initializeApp failed: $e');
+    if (kDebugMode) debugPrint('[main] Firebase init skipped: $e');
   }
 
-  // Initialiser les formats de dates en français
+  // Formats de dates en français
   await initializeDateFormatting('fr_FR', null);
 
-  // Créer et initialiser le state
+  // AppState : chargement complet avant runApp
   final appState = AppState();
   await appState.init();
 
@@ -36,9 +34,13 @@ void main() async {
   );
 }
 
+// ---------------------------------------------------------------------------
+// SauveApp — StatefulWidget pour conserver le GoRouter dans le State.
+// CRITIQUE : si SauveApp est StatelessWidget, buildRouter() est appelé à
+// chaque notifyListeners() → nouveau GoRouter → perte d'état → écran noir.
+// ---------------------------------------------------------------------------
 class SauveApp extends StatefulWidget {
   final AppState appState;
-
   const SauveApp({super.key, required this.appState});
 
   @override
@@ -46,9 +48,6 @@ class SauveApp extends StatefulWidget {
 }
 
 class _SauveAppState extends State<SauveApp> {
-  // Le router est créé UNE SEULE FOIS et conservé dans le State.
-  // Si on le recrée dans build(), chaque notifyListeners() détruirait
-  // l'état de navigation → écran noir / flash blanc.
   late final GoRouter _router;
 
   @override
@@ -64,29 +63,35 @@ class _SauveAppState extends State<SauveApp> {
       debugShowCheckedModeBanner: false,
       theme: SauveTheme.light,
       routerConfig: _router,
-      // Localisation française
       locale: const Locale('fr', 'FR'),
+      // ---------------------------------------------------------------------------
+      // CORRECTION ÉCRAN NOIR : le builder ne doit JAMAIS retourner child!
+      // sur Android. child peut être null pendant la première frame de GoRouter.
+      // Sur mobile on retourne child directement sans contrainte de largeur.
+      // Sur web on ajoute la contrainte de largeur max 430px.
+      // ---------------------------------------------------------------------------
       builder: (context, child) {
-        // Limite la taille sur desktop/web pour simuler un mobile
-        if (!kIsWeb) return child!;
-        return Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 430),
-            child: Container(
-              decoration: const BoxDecoration(
-                color: SauveColors.creme,
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x33000000),
-                    blurRadius: 60,
-                    spreadRadius: 10,
-                  ),
-                ],
-              ),
-              child: child,
-            ),
-          ),
+        // child est null uniquement pendant un bref instant au démarrage.
+        // On affiche un fond de couleur neutre (pas d'écran noir) en attendant.
+        final safeChild = child ?? const Scaffold(
+          backgroundColor: SauveColors.creme,
+          body: Center(child: CircularProgressIndicator()),
         );
+
+        if (kIsWeb) {
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 430),
+              child: Container(
+                color: SauveColors.creme,
+                child: safeChild,
+              ),
+            ),
+          );
+        }
+
+        // Android / iOS : retour direct, pas de contrainte
+        return safeChild;
       },
     );
   }

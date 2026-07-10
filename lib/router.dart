@@ -31,26 +31,20 @@ GoRouter buildRouter(AppState appState) {
     redirect: (ctx, state) {
       final isAuth = appState.isAuthenticated;
       final hasProfil = appState.profil != null;
-      final isLoading = appState.isLoading;
       final isLogin = state.matchedLocation == '/';
       final isCompleteProfil = state.matchedLocation == '/completer-profil';
       final isResetPassword = state.matchedLocation == '/reset-password';
 
-      // La page reset-password est accessible sans authentification
+      // reset-password : accessible sans authentification
       if (isResetPassword) return null;
 
-      // Pendant le chargement initial ou d'une opération auth,
-      // ne pas rediriger — laisse l'écran courant en place.
-      // Exception : si on est authentifié avec profil sur login, on peut rediriger.
-      if (isLoading && !(isAuth && hasProfil && isLogin)) return null;
-
-      // Non authentifié → login (sauf déjà sur login)
+      // Non authentifié → toujours login
       if (!isAuth && !isLogin) return '/';
 
-      // Authentifié + profil complet sur login → home
+      // Authentifié + profil → quitte login vers home
       if (isAuth && hasProfil && isLogin) return '/home';
 
-      // [2.8] Authentifié SANS profil → forcer /completer-profil
+      // Authentifié SANS profil → forcer la création du profil
       if (isAuth && !hasProfil && !isLogin && !isCompleteProfil) {
         return '/completer-profil';
       }
