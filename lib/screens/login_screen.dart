@@ -1082,8 +1082,26 @@ class _ProfilFormState extends State<_ProfilForm> {
     setState(() => _loading = true);
     final state = context.read<AppState>();
 
-    if (state.userId == null) {
+    // Résoudre l'userId : AppState est prioritaire, fallback SupabaseService
+    // Cas typique : inscription sans confirmation email → session immédiate
+    // Cas rare    : inscription avec confirmation email → userId peut être null
+    final userId = state.userId ?? SupabaseService.currentUserId;
+    if (userId == null) {
       setState(() => _loading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Session expirée. Veuillez vous reconnecter ou recommencer l\'inscription.',
+              style: GoogleFonts.inter(fontSize: 13),
+            ),
+            backgroundColor: SauveColors.rouge,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
       return;
     }
 
@@ -1106,7 +1124,7 @@ class _ProfilFormState extends State<_ProfilForm> {
     }
 
     final profil = ProfilDonneur(
-      userId: state.userId!,
+      userId: userId,
       groupeSanguin: _groupe,
       poids: _poids,
       genre: _genre,
@@ -1119,7 +1137,9 @@ class _ProfilFormState extends State<_ProfilForm> {
     );
 
     await state.sauvegarderProfil(profil);
-
+    // GoRouter redirect voit isAuthenticated=true + profil!=null → navigue vers /home
+    // L'appel explicite à context.go('/home') est maintenu comme fallback de sécurité
+    // au cas où le redirect GoRouter ne se déclencherait pas immédiatement.
     if (mounted) {
       setState(() => _loading = false);
       context.go('/home');

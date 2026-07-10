@@ -31,11 +31,16 @@ GoRouter buildRouter(AppState appState) {
     redirect: (ctx, state) {
       final isAuth = appState.isAuthenticated;
       final hasProfil = appState.profil != null;
-      final isLogin = state.matchedLocation == '/';
-      final isCompleteProfil = state.matchedLocation == '/completer-profil';
-      final isResetPassword = state.matchedLocation == '/reset-password';
+      final location = state.matchedLocation;
+      final isLogin = location == '/';
+      final isCompleteProfil = location == '/completer-profil';
+      // reset-password : accessible TOUJOURS, qu'on soit auth ou non.
+      // Un utilisateur authentifié peut aussi cliquer sur le lien email.
+      // On vérifie le début du path pour couvrir les cas avec fragment.
+      final isResetPassword = location == '/reset-password' ||
+          location.startsWith('/reset-password');
 
-      // reset-password : accessible sans authentification
+      // reset-password : toujours accessible — aucune redirection
       if (isResetPassword) return null;
 
       // Non authentifié → toujours login
@@ -98,13 +103,41 @@ GoRouter buildRouter(AppState appState) {
         parentNavigatorKey: _rootNavigatorKey,
         path: '/reset-password',
         pageBuilder: (ctx, state) {
-          // Extraire le token depuis les query params du deep link
-          // songre://reset-password?access_token=xxx&type=recovery
-          // ou depuis l'URL web https://songre.vercel.app/reset-password#access_token=xxx
-          final accessToken = state.uri.queryParameters['access_token'] ??
+          // ──────────────────────────────────────────────────────────────────
+          // EXTRACTION DU TOKEN — Supabase peut envoyer le token de deux façons :
+          //
+          // 1. QUERY PARAMS (format moderne, PKCEflow) :
+          //    songre://reset-password?access_token=eyJ...&type=recovery
+          //
+          // 2. FRAGMENT HASH (format classique / lien email direct) :
+          //    songre://reset-password#access_token=eyJ...&type=recovery
+          //    https://songre.vercel.app/reset-password#access_token=eyJ...
+          //
+          // state.uri.queryParameters ne contient QUE les params après '?'.
+          // Le fragment '#...' est dans state.uri.fragment et doit être parsé
+          // manuellement car Dart Uri ne le parse pas automatiquement.
+          // ──────────────────────────────────────────────────────────────────
+
+          // Étape 1 : tenter les query params (format PKCEflow)
+          String accessToken = state.uri.queryParameters['access_token'] ??
               state.uri.queryParameters['token'] ??
               '';
-          final type = state.uri.queryParameters['type'] ?? '';
+          String type = state.uri.queryParameters['type'] ?? '';
+
+          // Étape 2 : si vide, parser le fragment manuellement
+          if (accessToken.isEmpty) {
+            final fragment = state.uri.fragment; // ex: "access_token=eyJ...&type=recovery"
+            if (fragment.isNotEmpty) {
+              final fragmentParams = Uri.splitQueryString(fragment);
+              accessToken = fragmentParams['access_token'] ??
+                  fragmentParams['token'] ??
+                  '';
+              if (type.isEmpty) {
+                type = fragmentParams['type'] ?? '';
+              }
+            }
+          }
+
           return CustomTransitionPage(
             child: ResetPasswordScreen(
               accessToken: accessToken,

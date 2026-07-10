@@ -134,16 +134,31 @@ class SupabaseService {
         );
       }
 
-      final msg = data['error_description'] as String? ??
-          data['msg'] as String? ??
-          'Erreur lors de l\'inscription (${resp.statusCode})';
+      final rawMsg = (data['error_description'] as String? ??
+              data['msg'] as String? ??
+              data['error'] as String? ??
+              '')
+          .toLowerCase();
 
-      // Message explicite pour le cas HTTP 500 "Database error saving new user"
-      // (trigger Supabase défaillant — nécessite intervention admin DB)
-      final finalMsg = (resp.statusCode == 500 &&
-              msg.toLowerCase().contains('database error'))
-          ? 'Inscription temporairement indisponible. Merci de réessayer dans quelques minutes ou contacter le support.'
-          : msg;
+      // Traduire les erreurs d'inscription les plus fréquentes en français
+      final String finalMsg;
+      if (resp.statusCode == 500 && rawMsg.contains('database error')) {
+        finalMsg = 'Inscription temporairement indisponible. Merci de réessayer dans quelques minutes ou de contacter le support.';
+      } else if (rawMsg.contains('user already registered') ||
+          rawMsg.contains('already_registered') ||
+          rawMsg.contains('email already')) {
+        finalMsg = 'Cette adresse email est déjà associée à un compte. Utilisez "Se connecter" ou "Mot de passe oublié".';
+      } else if (rawMsg.contains('password') && rawMsg.contains('weak')) {
+        finalMsg = 'Mot de passe trop faible. Utilisez au moins 8 caractères avec des lettres et chiffres.';
+      } else if (rawMsg.contains('invalid email') || resp.statusCode == 422) {
+        finalMsg = 'L\'adresse email saisie est invalide. Vérifiez le format (ex : nom@domaine.com).';
+      } else if (rawMsg.contains('rate limit') || resp.statusCode == 429) {
+        finalMsg = 'Trop de tentatives. Patientez quelques minutes avant de réessayer.';
+      } else if (rawMsg.isNotEmpty) {
+        finalMsg = 'Inscription impossible : $rawMsg';
+      } else {
+        finalMsg = 'Erreur lors de l\'inscription (${resp.statusCode}). Réessayez.';
+      }
       return AuthResult(success: false, error: finalMsg);
     } catch (e) {
       if (kDebugMode) debugPrint('[SupabaseService] inscrire error: $e');
@@ -188,9 +203,12 @@ class SupabaseService {
         );
       }
 
-      final msg = data['error_description'] as String? ??
-          data['msg'] as String? ??
-          'Email ou mot de passe incorrect.';
+      final rawMsg = (data['error_description'] as String? ??
+              data['msg'] as String? ??
+              data['error'] as String? ??
+              '')
+          .toLowerCase();
+      final msg = _traduireErreurConnexion(rawMsg, resp.statusCode);
       return AuthResult(success: false, error: msg);
     } catch (e) {
       if (kDebugMode) debugPrint('[SupabaseService] connecter error: $e');
@@ -1046,6 +1064,68 @@ class SupabaseService {
   // =====================================================================
   // HELPERS PRIVÉS
   // =====================================================================
+
+  /// Traduit les messages d'erreur Supabase Auth en français clair et précis.
+  ///
+  /// Supabase retourne des messages en anglais via error_description/msg.
+  /// Cette fonction les mappe vers des messages français chirurgicaux,
+  /// distinguant explicitement email incorrect vs mot de passe incorrect.
+  ///
+  /// Codes HTTP pertinents :
+  ///   400 : identifiants invalides (mauvais email OU mauvais mot de passe)
+  ///   422 : données mal formatées (email invalide côté serveur)
+  ///   429 : trop de tentatives
+  static String _traduireErreurConnexion(String rawMsg, int statusCode) {
+    // ── Trop de tentatives ──────────────────────────────────────────────
+    if (statusCode == 429 || rawMsg.contains('rate limit') || rawMsg.contains('too many')) {
+      return 'Trop de tentatives de connexion. Patientez quelques minutes avant de réessayer.';
+    }
+
+    // ── Email non confirmé ──────────────────────────────────────────────
+    if (rawMsg.contains('email not confirmed') || rawMsg.contains('email_not_confirmed')) {
+      return 'Votre adresse email n\'a pas encore été confirmée. Vérifiez votre boîte mail.';
+    }
+
+    // ── Compte désactivé / supprimé ─────────────────────────────────────
+    if (rawMsg.contains('user not found') || rawMsg.contains('user_not_found')) {
+      return 'Aucun compte n\'existe avec cette adresse email. Vérifiez votre email ou créez un compte.';
+    }
+
+    // ── Mot de passe incorrect (Supabase distingue parfois) ─────────────
+    if (rawMsg.contains('invalid password') || rawMsg.contains('wrong password') ||
+        rawMsg.contains('incorrect password')) {
+      return 'Mot de passe incorrect. Vérifiez votre mot de passe ou utilisez "Mot de passe oublié".';
+    }
+
+    // ── Identifiants invalides (message générique Supabase le plus courant) ─
+    // "Invalid login credentials" signifie que l'email existe mais le mot
+    // de passe est faux, OU que l'email n'existe pas du tout.
+    // Supabase ne distingue pas les deux pour des raisons de sécurité.
+    if (rawMsg.contains('invalid login credentials') ||
+        rawMsg.contains('invalid_credentials') ||
+        rawMsg.contains('invalid credentials')) {
+      return 'Email ou mot de passe incorrect. '
+          'Vérifiez l\'adresse email saisie et votre mot de passe.';
+    }
+
+    // ── Email invalide (format incorrect côté serveur) ───────────────────
+    if (statusCode == 422 || rawMsg.contains('invalid email') ||
+        rawMsg.contains('email_invalid') || rawMsg.contains('unable to validate email')) {
+      return 'L\'adresse email saisie est invalide. Vérifiez le format (ex : nom@domaine.com).';
+    }
+
+    // ── Réseau / serveur ─────────────────────────────────────────────────
+    if (rawMsg.contains('network') || rawMsg.contains('connection') || statusCode >= 500) {
+      return 'Connexion impossible. Vérifiez votre accès à internet et réessayez.';
+    }
+
+    // ── Message par défaut (erreur inconnue) ─────────────────────────────
+    if (rawMsg.isNotEmpty) {
+      // Retourner le message brut si on ne sait pas le traduire
+      return 'Connexion impossible : $rawMsg';
+    }
+    return 'Email ou mot de passe incorrect. Vérifiez vos identifiants.';
+  }
 
   /// Compte les demandes actives de l'utilisateur — PROTÉGÉ par
   /// _requeteAvecRefresh() (§5 audit : anti-spam non contournable par
