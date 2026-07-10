@@ -12,6 +12,7 @@ import '../utils/secure_storage_service.dart';
 //   SUPABASE_URL=https://ptomqwucvveuflfnyczo.supabase.co
 //   SUPABASE_ANON_KEY=eyJ...
 //   SONGRE_ENCRYPT_KEY=<32 chars minimum>
+//   WEBHOOK_SECRET=<secret partagé avec l'Edge Function valider-token>
 //
 // Authentification : Email / Mot de passe via Supabase Auth
 // Token : JWT signé retourné par /auth/v1/token?grant_type=password
@@ -28,6 +29,12 @@ class SupabaseService {
       String.fromEnvironment('SUPABASE_URL', defaultValue: '');
   static const String _anonKey =
       String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+
+  /// Secret partagé requis par l'Edge Function valider-token (étape 0).
+  /// Injecté via --dart-define=WEBHOOK_SECRET=...
+  /// Valeur Supabase Vault : "Donnersonsangcestsauvezdesvie-songre2026burkinafaso@"
+  static const String _webhookSecret =
+      String.fromEnvironment('WEBHOOK_SECRET', defaultValue: '');
 
   /// JWT retourné par Supabase Auth — sert de Bearer token
   static String? _accessToken;
@@ -614,7 +621,14 @@ class SupabaseService {
 
     try {
       final url = Uri.parse('$_supabaseUrl/functions/v1/valider-token');
-      final hdrs = _headers(withAuth: true);
+      // ── Correction S-04 (audit 2026-07-09) ──────────────────────────────
+      // L'Edge Function valider-token exige le header x-webhook-secret à
+      // l'étape 0. Sans ce header, l'EF retourne 401. On l'ajoute ici.
+      // La valeur est injectée via --dart-define=WEBHOOK_SECRET=...
+      final hdrs = {
+        ..._headers(withAuth: true),
+        if (_webhookSecret.isNotEmpty) 'x-webhook-secret': _webhookSecret,
+      };
       final body = jsonEncode({
         'token': token,
         'demandeur_id': demandeurId,
@@ -989,6 +1003,20 @@ class SupabaseService {
       );
 
       if (resp.statusCode == 200) {
+        // ── Correction S-08 (audit 2026-07-09) ──────────────────────────────
+        // Ancienne version : list.length — fragile car dépend de la pagination
+        // (Supabase retourne max 1000 résultats par défaut).
+        // Correction : utiliser le header Content-Range retourné par
+        // Prefer: count=exact, qui contient le total réel indépendamment
+        // de la pagination. Format : "0-N/TOTAL" ou "*/TOTAL".
+        final contentRange = resp.headers['content-range'] ?? '';
+        if (contentRange.isNotEmpty) {
+          final parts = contentRange.split('/');
+          if (parts.length == 2) {
+            return int.tryParse(parts[1]) ?? 0;
+          }
+        }
+        // Fallback sur list.length si Content-Range absent
         final list = jsonDecode(resp.body) as List;
         return list.length;
       }

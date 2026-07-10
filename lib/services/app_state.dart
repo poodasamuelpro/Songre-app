@@ -325,8 +325,16 @@ class AppState extends ChangeNotifier {
 
   Future<void> declarerDon(DateTime dateDon) async {
     if (_profil == null || _userId == null) return;
+    // ── Correction 2.8.2 (audit 2026-07-09) : suppression de la double-écriture.
+    // Ancienne version : sauvegarderProfil(updated) + enregistrerDon().
+    // Les deux écrivaient dernier_don_date en base → double PATCH.
+    // Correction : mise à jour optimiste locale uniquement, puis appel EF don-manuel
+    // qui gère seul la mise à jour DB (profils_donneurs + historique_dons + notif).
     final updated = _profil!.copyWith(dernierDonDate: dateDon);
-    await sauvegarderProfil(updated);
+    // Mise à jour locale optimiste (UI immédiate, sans PATCH réseau)
+    _profil = updated;
+    notifyListeners();
+    // Appel EF — écrit dernier_don_date, insère historique_dons, envoie notif
     await SupabaseService.enregistrerDon(
       donneurId: _userId!,
       dateDon: dateDon,
@@ -334,7 +342,7 @@ class AppState extends ChangeNotifier {
     );
     _ajouterNotificationLocale(NotificationSauve(
       id: _genId(),
-      type: TypeNotification.donConfirme,
+      type: TypeNotification.donEnregistreManuel,
       message: 'Votre don a été enregistré. Merci pour votre générosité.',
       createdAt: DateTime.now(),
     ));

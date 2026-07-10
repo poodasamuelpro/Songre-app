@@ -111,7 +111,9 @@ class HomeScreen extends StatelessWidget {
   Widget _buildNotifBadge(BuildContext context, AppState state) {
     final count = state.notifNonLues;
     return GestureDetector(
-      onTap: () {},
+      // ── Correction R-09/S-07 (audit 2026-07-09) ────────────────────
+      // onTap était vide `() {}`. Navigue maintenant vers /alertes.
+      onTap: () => context.push('/alertes'),
       child: Stack(
         clipBehavior: Clip.none,
         children: [

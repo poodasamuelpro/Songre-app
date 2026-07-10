@@ -105,24 +105,52 @@ class _NotifItem extends StatelessWidget {
 
   Color get _dotColor {
     switch (notif.type) {
+      // ── Alertes sang / urgences ─────────────────────────────────────
       case TypeNotification.demandeCompatible:
         return SauveColors.rouge;
+      // ── Confirmations de don ────────────────────────────────────────
       case TypeNotification.donConfirme:
+      case TypeNotification.donConfirmeDemandeur:
+      case TypeNotification.donEnregistreManuel:
         return SauveColors.vert;
+      // ── Réponses de donneurs ────────────────────────────────────────
+      case TypeNotification.reponseRecue:
+        return const Color(0xFF1565C0); // bleu marine
+      case TypeNotification.reponseEncouragement:
+        return const Color(0xFF0288D1); // bleu clair
+      // ── Retour éligibilité ──────────────────────────────────────────
       case TypeNotification.retourEligibilite:
         return SauveColors.grisClair;
+      // ── Système / compte ────────────────────────────────────────────
+      case TypeNotification.suppressionDemandee:
+        return const Color(0xFFE65100); // orange foncé
+      case TypeNotification.bienvenue:
+        return const Color(0xFF388E3C); // vert foncé
+      case TypeNotification.mdpModifie:
+        return const Color(0xFF6A1B9A); // violet
     }
   }
 
-  // ignore: unused_element
   IconData get _iconForType {
     switch (notif.type) {
       case TypeNotification.demandeCompatible:
         return Icons.water_drop_outlined;
       case TypeNotification.donConfirme:
+      case TypeNotification.donConfirmeDemandeur:
+      case TypeNotification.donEnregistreManuel:
         return Icons.check_circle_outline;
+      case TypeNotification.reponseRecue:
+        return Icons.person_add_alt_1_outlined;
+      case TypeNotification.reponseEncouragement:
+        return Icons.volunteer_activism_outlined;
       case TypeNotification.retourEligibilite:
         return Icons.calendar_today_outlined;
+      case TypeNotification.suppressionDemandee:
+        return Icons.delete_outline;
+      case TypeNotification.bienvenue:
+        return Icons.waving_hand_outlined;
+      case TypeNotification.mdpModifie:
+        return Icons.lock_outline;
     }
   }
 
@@ -150,16 +178,20 @@ class _NotifItem extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Point / icône colorée
+          // Icône colorée (type-aware — correction R-03)
           Padding(
-            padding: const EdgeInsets.only(top: 3),
+            padding: const EdgeInsets.only(top: 2),
             child: Container(
-              width: 8,
-              height: 8,
-              margin: const EdgeInsets.only(top: 5),
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
-                color: _dotColor,
+                color: _dotColor.withValues(alpha: 0.12),
                 shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _iconForType,
+                size: 17,
+                color: _dotColor,
               ),
             ),
           ),

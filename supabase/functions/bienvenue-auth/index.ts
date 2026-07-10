@@ -103,6 +103,25 @@ serve(async (req: Request) => {
     auth: { persistSession: false },
   });
 
+  // ── Correction R-10/2.1.3 (audit 2026-07-09) ────────────────────────────
+  // La ligne public.identites DOIT être créée lors de l'inscription pour que
+  // programmerSuppression() (PATCH identites?user_id=eq.$userId) fonctionne.
+  // Sans cette ligne, la suppression de compte échoue silencieusement.
+  // On l'insère ici dans bienvenue-auth (appelé à chaque INSERT auth.users).
+  const { error: identiteError } = await adminClient
+    .from("identites")
+    .upsert(
+      { user_id: newUser.id, compte_actif: true },
+      { onConflict: "user_id", ignoreDuplicates: true },
+    );
+
+  if (identiteError) {
+    // Non bloquant — si la table n'existe pas encore, on log et on continue
+    console.warn("[bienvenue-auth] Erreur upsert identites:", identiteError.message);
+  } else {
+    console.log(`[bienvenue-auth] Ligne identites créée/confirmée pour ${newUser.id}`);
+  }
+
   // ── Envoyer l'email de bienvenue ──────────────────────────────────────────
   const emailSent = await envoyerEmailDirect(
     newUser.email,

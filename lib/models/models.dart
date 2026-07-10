@@ -5,12 +5,12 @@
 
 import '../utils/crypto_service.dart';
 
-// ── Durée de validité configurable (§7 — à confirmer avec l'équipe)
-// La base de données définit expires_at DEFAULT now() + '7 days'.
-// Cette constante permet de changer la durée sans modifier le code.
-// Valeur actuelle : 7 jours (aligné avec le schéma SQL réel).
-// L'UI affichera cette valeur dynamiquement.
-const Duration kDureeValiditeDemande = Duration(days: 7);
+// ── Durée de validité des demandes de sang (§2.5.6 — correction R-05)
+// ── Correction audit 2026-07-09 : alignement sur le cahier des charges → 72h.
+// ── Le DEFAULT PostgreSQL sur demandes_sang.expires_at DOIT aussi être
+// ── mis à jour : DEFAULT now() + interval '72 hours' (cf. SQL ci-dessous).
+// SQL : ALTER TABLE public.demandes_sang ALTER COLUMN expires_at SET DEFAULT now() + interval '72 hours';
+const Duration kDureeValiditeDemande = Duration(hours: 72);
 String get kDureeValiditeDemandeLabel {
   if (kDureeValiditeDemande.inHours < 24) {
     return '${kDureeValiditeDemande.inHours}h';
@@ -71,10 +71,24 @@ enum Genre {
 }
 
 // Miroir de public.type_notification_enum
+// Synchronisé avec mission-d.sql — 10 valeurs totales (audit R-03, 2026-07-09)
+// Valeurs originales (3) : demande_compatible, don_confirme, retour_eligibilite
+// Valeurs ajoutées (7) : reponse_recue, reponse_encouragement,
+//   don_confirme_demandeur, don_enregistre_manuel, suppression_demandee,
+//   bienvenue, mdp_modifie
 enum TypeNotification {
+  // ── Valeurs historiques ──────────────────────────────────────────────
   demandeCompatible('demande_compatible'),
   donConfirme('don_confirme'),
-  retourEligibilite('retour_eligibilite');
+  retourEligibilite('retour_eligibilite'),
+  // ── Valeurs ajoutées (mission-d.sql) ─────────────────────────────────
+  reponseRecue('reponse_recue'),
+  reponseEncouragement('reponse_encouragement'),
+  donConfirmeDemandeur('don_confirme_demandeur'),
+  donEnregistreManuel('don_enregistre_manuel'),
+  suppressionDemandee('suppression_demandee'),
+  bienvenue('bienvenue'),
+  mdpModifie('mdp_modifie');
 
   final String value;
   const TypeNotification(this.value);
@@ -610,6 +624,20 @@ class NotificationSauve {
         return 'Votre don a été confirmé. Merci pour votre générosité.';
       case TypeNotification.retourEligibilite:
         return 'Vous êtes à nouveau éligible pour donner du sang.';
+      case TypeNotification.reponseRecue:
+        return 'Un donneur a répondu à votre demande. Consultez ses coordonnées.';
+      case TypeNotification.reponseEncouragement:
+        return 'Merci d\'avoir répondu ! Contactez le demandeur rapidement.';
+      case TypeNotification.donConfirmeDemandeur:
+        return 'Votre demande a été honorée. Le don a été validé avec succès.';
+      case TypeNotification.donEnregistreManuel:
+        return 'Votre don a été enregistré manuellement. Merci !';
+      case TypeNotification.suppressionDemandee:
+        return 'Votre demande de suppression de compte a été prise en compte.';
+      case TypeNotification.bienvenue:
+        return 'Bienvenue sur SONGRE ! Votre compte est prêt.';
+      case TypeNotification.mdpModifie:
+        return 'Votre mot de passe a été modifié avec succès.';
     }
   }
 

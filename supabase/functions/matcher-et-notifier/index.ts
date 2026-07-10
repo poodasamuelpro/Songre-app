@@ -218,19 +218,46 @@ serve(async (req: Request) => {
 
   const donneurIds = donneursFiltres.map((p) => p.user_id);
 
-  // ── 2. Récupérer les emails depuis auth.users (admin API) ─────────────────
+  // ── 2. Récupérer les emails depuis auth.users (requête bulk) ──────────────
+  // ── Correction P-02/R-11 (audit 2026-07-09) ──────────────────────────────
+  // Ancienne version : N appels getUserById en parallèle par lots de 50.
+  // Pour 100 donneurs = 100 appels Admin API → risque de rate-limit et latence.
+  // Correction : une seule requête SQL directe sur auth.users via service_role.
+  // adminClient.from() peut accéder à auth.users avec service_role_key.
   const emailsMap = new Map<string, string>();
-  const BATCH_USERS = 50;
-  for (let i = 0; i < donneurIds.length; i += BATCH_USERS) {
-    const batchIds = donneurIds.slice(i, i + BATCH_USERS);
-    await Promise.all(
-      batchIds.map(async (uid) => {
-        const { data, error } = await adminClient.auth.admin.getUserById(uid);
-        if (!error && data?.user?.email) {
-          emailsMap.set(uid, data.user.email);
+  if (donneurIds.length > 0) {
+    try {
+      // Requête bulk : SELECT id, email FROM auth.users WHERE id IN (...)
+      const { data: usersRows, error: usersError } = await adminClient
+        .from("users")
+        .select("id, email")
+        .in("id", donneurIds)
+        .schema("auth");
+
+      if (usersError) {
+        // Fallback vers N+1 si la requête bulk échoue (ex: permissions insuffisantes)
+        console.warn("[matcher] Bulk email fetch failed, fallback to N+1:", usersError.message);
+        const BATCH_USERS = 50;
+        for (let i = 0; i < donneurIds.length; i += BATCH_USERS) {
+          const batchIds = donneurIds.slice(i, i + BATCH_USERS);
+          await Promise.all(
+            batchIds.map(async (uid) => {
+              const { data, error } = await adminClient.auth.admin.getUserById(uid);
+              if (!error && data?.user?.email) {
+                emailsMap.set(uid, data.user.email);
+              }
+            }),
+          );
         }
-      }),
-    );
+      } else if (usersRows) {
+        for (const u of usersRows as { id: string; email: string }[]) {
+          if (u.email) emailsMap.set(u.id, u.email);
+        }
+        console.log(`[matcher] Bulk email fetch: ${emailsMap.size}/${donneurIds.length} emails récupérés`);
+      }
+    } catch (bulkErr) {
+      console.warn("[matcher] Bulk email error:", bulkErr);
+    }
   }
 
   // ── 3. Récupérer les tokens FCM via _shared/fcm.ts ────────────────────────

@@ -30,10 +30,13 @@ export function getCorsHeaders(
 ): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
 
-  // Vérifier si l'origin est dans la liste autorisée
-  const allowOrigin = ALLOWED_ORIGINS.includes(origin)
-    ? origin
-    : ALLOWED_ORIGINS[0]; // Fallback sur le domaine principal
+  // ── Correction S-06 (audit 2026-07-09) ────────────────────────────────────
+  // Ancienne version : retournait ALLOWED_ORIGINS[0] pour toute origine inconnue,
+  // ce qui produisait un header CORS syntaxiquement valide mais sémantiquement
+  // trompeur. Correction : null-string pour les origines non autorisées,
+  // ce qui fait rejeter la requête par le navigateur (comportement CORS attendu).
+  // Note : les EFs Supabase côté mobile n'envoient pas d'Origin → elles passent.
+  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "";
 
   const baseHeaders =
     "authorization, x-client-info, apikey, content-type, " +
