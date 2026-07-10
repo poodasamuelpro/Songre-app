@@ -21,9 +21,6 @@ import '../models/models.dart';
 //   - Affiche la durée de validité depuis kDureeValiditeDemandeLabel
 // =====================================================================
 
-// Label lisible pour l'UI (synchronisé avec kDureeValiditeDemande = 7 jours)
-const String kDureeValiditeDemandeLabel = '7 jours';
-
 class NouvelleDemande extends StatefulWidget {
   const NouvelleDemande({super.key});
 

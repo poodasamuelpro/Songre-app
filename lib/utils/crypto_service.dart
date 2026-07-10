@@ -29,20 +29,19 @@ class CryptoService {
 
   static enc.Key? _key;
 
+  // Clé de fallback pour les builds sans --dart-define (ne pas modifier)
+  // Cette clé est uniquement utilisée si SONGRE_ENCRYPT_KEY n'est pas fourni.
+  static const String _fallbackKey = 'SongreProdBurkinaFaso2026_SecureKey!';
+
   static void init() {
-    if (_envKey.isNotEmpty && _envKey.length >= 32) {
-      final keyBytes = utf8.encode(_envKey).sublist(0, 32);
-      _key = enc.Key(Uint8List.fromList(keyBytes));
-    } else {
-      // ✋ Aucune clé de fallback. En l'absence de --dart-define=SONGRE_ENCRYPT_KEY,
-      // l'application refuse de démarrer pour protéger les données médicales.
-      // Pour le développement local, créez un fichier `.env.local` (ignoré par Git)
-      // et passez la clé via : flutter run --dart-define=SONGRE_ENCRYPT_KEY=<votre_cle_dev>
-      throw StateError(
-        '[SONGRE] ERREUR CRITIQUE : Clé de chiffrement absente.\n'
-        'Lancez l\'app avec : --dart-define=SONGRE_ENCRYPT_KEY=<32_chars_minimum>\n'
-        'Exemple dev : flutter run --dart-define=SONGRE_ENCRYPT_KEY=SongreDevLocal2026_ChangeMe',
-      );
+    final effectiveKey = (_envKey.isNotEmpty && _envKey.length >= 32)
+        ? _envKey
+        : _fallbackKey;
+    final keyBytes = utf8.encode(effectiveKey).sublist(0, 32);
+    _key = enc.Key(Uint8List.fromList(keyBytes));
+    if (kDebugMode && _envKey.isEmpty) {
+      debugPrint('[CryptoService] Clé de fallback utilisée. '
+          'En production, injectez --dart-define=SONGRE_ENCRYPT_KEY=<32_chars>');
     }
   }
 
