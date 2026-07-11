@@ -34,6 +34,7 @@ class AppState extends ChangeNotifier {
 
   // ---- État utilisateur ----
   String? _userId;
+  String? _emailCourant; // Mémorisé à la connexion — évite un appel réseau dans ChangePasswordScreen (S4)
   ProfilDonneur? _profil;
   bool _isLoading = false;
   bool _isAuthenticated = false;
@@ -61,6 +62,10 @@ class AppState extends ChangeNotifier {
   bool get suppressionProgrammee => _suppressionProgrammee;
   DateTime? get dateSuppression => _dateSuppression;
   String? get authError => _authError;
+  /// Email de l'utilisateur connecté, mémorisé à la connexion.
+  /// Null si non encore connecté. Utilisé par ChangePasswordScreen pour
+  /// éviter un appel réseau redondant à obtenirEmailCourant() (correction S4).
+  String? get emailCourant => _emailCourant;
   List<DemandeSang> get demandes => _demandes;
   List<NotificationSauve> get notifications => _notifications;
   int get notifNonLues => _notifications.where((n) => !n.lue).length;
@@ -261,6 +266,7 @@ class AppState extends ChangeNotifier {
     }
 
     _userId = result.userId;
+    _emailCourant = email; // Mémorisé ici — évite un appel réseau dans ChangePasswordScreen (S4)
     await SecureStorageService.sauvegarderSession(
       userId: _userId!,
       accessToken: result.accessToken!,
@@ -269,16 +275,25 @@ class AppState extends ChangeNotifier {
     );
     _isAuthenticated = true;
 
-    // Charger les référentiels + données métier
-    await _chargerVilles();
-    // Essayer le backend d'abord, puis le cache local
-    await _loadProfilAvecFallback();
-    await _loadDemandes();
-    // Notifications depuis le backend (source de vérité)
-    await _chargerNotificationsBackend();
-    _recalculerCompatibilite();
-
-    _setLoading(false);
+    // Charger les référentiels + données métier.
+    // Le bloc try/finally garantit que _setLoading(false) est TOUJOURS appelé,
+    // même si _chargerVilles() ou _loadDemandes() lèvent une exception réseau.
+    // Sans ce garde, une exception non capturée laisse le spinner figé (S1-A).
+    try {
+      await _chargerVilles();
+      await _loadProfilAvecFallback();
+      await _loadDemandes();
+      await _chargerNotificationsBackend();
+      _recalculerCompatibilite();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AppState] connecter() — chargement post-auth: $e');
+      }
+      // On ne déconnecte pas l'utilisateur : la session est valide.
+      // Les données manquantes seront rechargées au prochain rafraîchissement.
+    } finally {
+      _setLoading(false);
+    }
     return true;
   }
 
@@ -298,6 +313,7 @@ class AppState extends ChangeNotifier {
     await SecureStorageService.supprimerSession();
 
     _userId = null;
+    _emailCourant = null; // Effacer l'email mémorisé à la déconnexion (S4)
     _profil = null;
     _isAuthenticated = false;
     _suppressionProgrammee = false;

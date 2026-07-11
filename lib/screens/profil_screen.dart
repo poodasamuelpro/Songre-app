@@ -7,6 +7,7 @@ import '../models/models.dart';
 import 'package:intl/intl.dart';
 import 'change_password_screen.dart';
 import 'contact_screen.dart';
+import 'historique_screen.dart';
 import 'parametres_screen.dart';
 
 // =====================================================================
@@ -1019,13 +1020,28 @@ class ProfilScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _buildSettingsItem(
-              icon: Icons.lock_outline,
-              label: 'Modifier mon mot de passe',
+              icon: Icons.history_outlined,
+              label: 'Mon historique',
               onTap: () {
                 Navigator.pop(ctx);
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => const ChangePasswordScreen(),
+                    builder: (_) => const HistoriqueScreen(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+            _buildSettingsItem(
+              icon: Icons.lock_outline,
+              label: 'Modifier mon mot de passe',
+              onTap: () {
+                Navigator.pop(ctx);
+                // Correction S4 : passer l'email depuis AppState pour éviter
+                // un appel réseau supplémentaire dans ChangePasswordScreen.
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ChangePasswordScreen(email: state.emailCourant),
                   ),
                 );
               },

@@ -8,9 +8,15 @@ import '../services/supabase_service.dart';
 // =====================================================================
 // ÉCRAN — Modifier le mot de passe / Mot de passe oublié
 // D6 — Mission D : Sécurité compte + notification mdp_modifie
+// Correction S4 : l'email est passé en paramètre depuis AppState,
+// évitant un appel réseau redondant à obtenirEmailCourant().
 // =====================================================================
 class ChangePasswordScreen extends StatefulWidget {
-  const ChangePasswordScreen({super.key});
+  /// Email de l'utilisateur connecté, passé depuis AppState.
+  /// S'il est fourni, évite un appel réseau supplémentaire dans _ChangerMdpForm.
+  final String? email;
+
+  const ChangePasswordScreen({super.key, this.email});
 
   @override
   State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
@@ -31,6 +37,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             1 => _ChangerMdpForm(
                 key: const ValueKey('changer'),
                 onRetour: () => setState(() => _mode = 0),
+                email: widget.email, // transmis depuis AppState
               ),
             2 => _MdpOublieForm(
                 key: const ValueKey('oublie'),
@@ -187,8 +194,11 @@ class _ChoixMode extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _ChangerMdpForm extends StatefulWidget {
   final VoidCallback onRetour;
+  /// Email passé depuis AppState (correction S4). Si null, fallback sur
+  /// obtenirEmailCourant() — compatibilité ascendante conservée.
+  final String? email;
 
-  const _ChangerMdpForm({super.key, required this.onRetour});
+  const _ChangerMdpForm({super.key, required this.onRetour, this.email});
 
   @override
   State<_ChangerMdpForm> createState() => _ChangerMdpFormState();
@@ -234,8 +244,11 @@ class _ChangerMdpFormState extends State<_ChangerMdpForm> {
     });
 
     try {
-      // Étape 1 : Vérifier l'ancien mot de passe via re-authentification
-      final emailResult = await SupabaseService.obtenirEmailCourant();
+      // Étape 1 : Vérifier l'ancien mot de passe via re-authentification.
+      // Correction S4 : utiliser l'email passé en paramètre (déjà connu de AppState)
+      // plutôt que d'effectuer un appel réseau supplémentaire à obtenirEmailCourant().
+      // Fallback sur l'appel réseau uniquement si le paramètre est absent (compatibilité).
+      final emailResult = widget.email ?? await SupabaseService.obtenirEmailCourant();
       if (emailResult == null) {
         setState(() {
           _erreur = 'Session invalide. Veuillez vous reconnecter.';

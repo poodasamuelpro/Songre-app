@@ -400,8 +400,12 @@ class _ConnexionFormState extends State<_ConnexionForm> {
       motDePasse: _mdpCtrl.text,
     );
 
-    if (!mounted) return;
-    setState(() => _loading = false);
+    // Correction S1-B : on utilise `if (mounted)` au lieu de `if (!mounted) return`
+    // pour garantir que le spinner local est toujours réinitialisé.
+    // L'ancien `if (!mounted) return` laissait le spinner figé si le widget
+    // était démonté pendant l'await (navigation rapide, double-tap, pop).
+    if (mounted) setState(() => _loading = false);
+    if (!mounted) return; // Guard pour les opérations UI suivantes (SnackBar, etc.)
 
     if (!ok) {
       // [2.5] Incrémenter le compteur d'échecs

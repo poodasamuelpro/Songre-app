@@ -44,9 +44,12 @@ class SupabaseService {
   /// Secret partagé requis par l'Edge Function valider-token (étape 0).
   /// Injecté via --dart-define=WEBHOOK_SECRET=...
   /// Valeur Supabase Vault : "Donnersonsangcestsauvezdesvie-songre2026burkinafaso@"
+  // SEC-02 : valeur par défaut hardcodée supprimée.
+  // La valeur réelle est injectée via --dart-define=WEBHOOK_SECRET=...
+  // Si absent au build, la chaîne sera vide et l'EF valider-token rejettera
+  // la requête (échec explicite, pas de secret connu publiquement).
   static const String _webhookSecret = String.fromEnvironment(
     'WEBHOOK_SECRET',
-    defaultValue: 'Donnersonsangcestsauvezdesvie-songre2026burkinafaso@',
   );
 
   /// JWT retourné par Supabase Auth — sert de Bearer token
@@ -1268,7 +1271,13 @@ class SupabaseService {
           .post(
             Uri.parse('$_supabaseUrl/auth/v1/recover'),
             headers: _headers(),
-            body: jsonEncode({'email': email}),
+            body: jsonEncode({
+            'email': email,
+            // Deep link qui s'ouvre dans l'app pour afficher ResetPasswordScreen.
+            // Doit être enregistré dans Supabase Dashboard →
+            // Authentication → URL Configuration → Redirect URLs.
+            'redirectTo': 'songre://reset-password',
+          }),
           )
           .timeout(const Duration(seconds: 10));
       // 200 = email envoyé, 204 = même résultat sans body
@@ -1378,6 +1387,62 @@ class SupabaseService {
     } catch (e) {
       if (kDebugMode) debugPrint('[SupabaseService] lireLiensExternes: $e');
       return [];
+    }
+  }
+
+  // =====================================================================
+  // HISTORIQUE — Dons effectués + Demandes publiées (S5)
+  // =====================================================================
+  static Future<HistoriquePageResult> lireHistoriqueUtilisateur({
+    required String userId,
+    int page = 0,
+    int pageSize = 25,
+  }) async {
+    if (!estConfigured || _accessToken == null) {
+      return const HistoriquePageResult(dons: [], demandes: [], aUnePageSuivante: false);
+    }
+    final offset = page * pageSize;
+    final limitePlusUn = pageSize + 1;
+    try {
+      final urlDons = Uri.parse(
+        '$_supabaseUrl/rest/v1/historique_dons'
+        '?donneur_id=eq.$userId'
+        '&select=id,date_don,source,demande_id,created_at'
+        '&order=date_don.desc,created_at.desc'
+        '&limit=$limitePlusUn'
+        '&offset=$offset',
+      );
+      final respDons = await _requeteAvecRefresh(
+        () => http.get(urlDons, headers: _restHeaders(withAuth: true)).timeout(const Duration(seconds: 10)),
+      );
+      final urlDemandes = Uri.parse(
+        '$_supabaseUrl/rest/v1/demandes_sang'
+        '?auteur_id=eq.$userId'
+        '&select=id,groupe_sanguin_recherche,statut,created_at,expires_at,ville_nom'
+        '&order=created_at.desc'
+        '&limit=$limitePlusUn'
+        '&offset=$offset',
+      );
+      final respDemandes = await _requeteAvecRefresh(
+        () => http.get(urlDemandes, headers: _restHeaders(withAuth: true)).timeout(const Duration(seconds: 10)),
+      );
+      List<HistoriqueDon> dons = [];
+      List<HistoriqueDemande> demandes = [];
+      bool aUnePageSuivante = false;
+      if (respDons.statusCode == 200) {
+        final list = jsonDecode(respDons.body) as List;
+        if (list.length > pageSize) { aUnePageSuivante = true; list.removeLast(); }
+        dons = list.map((e) => HistoriqueDon.fromJson(e as Map<String, dynamic>)).toList();
+      }
+      if (respDemandes.statusCode == 200) {
+        final list = jsonDecode(respDemandes.body) as List;
+        if (list.length > pageSize) { aUnePageSuivante = true; list.removeLast(); }
+        demandes = list.map((e) => HistoriqueDemande.fromJson(e as Map<String, dynamic>)).toList();
+      }
+      return HistoriquePageResult(dons: dons, demandes: demandes, aUnePageSuivante: aUnePageSuivante);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] lireHistoriqueUtilisateur error: $e');
+      return const HistoriquePageResult(dons: [], demandes: [], aUnePageSuivante: false);
     }
   }
 }
@@ -1491,4 +1556,99 @@ class ResetPasswordResult {
   final String? error;
 
   const ResetPasswordResult({required this.success, this.error});
+}
+
+// =====================================================================
+// MODÈLES — Historique (S5)
+// =====================================================================
+
+/// Résultat paginé d'une page de l'historique.
+class HistoriquePageResult {
+  final List<HistoriqueDon> dons;
+  final List<HistoriqueDemande> demandes;
+  final bool aUnePageSuivante;
+
+  const HistoriquePageResult({
+    required this.dons,
+    required this.demandes,
+    required this.aUnePageSuivante,
+  });
+}
+
+/// Un don enregistré depuis public.historique_dons.
+class HistoriqueDon {
+  final String id;
+  final DateTime dateDon;
+  final String source; // 'qr_valide' | 'declaratif'
+  final String? demandeId;
+  final DateTime? createdAt;
+
+  const HistoriqueDon({
+    required this.id,
+    required this.dateDon,
+    required this.source,
+    this.demandeId,
+    this.createdAt,
+  });
+
+  factory HistoriqueDon.fromJson(Map<String, dynamic> json) => HistoriqueDon(
+        id: json['id'] as String,
+        dateDon: DateTime.parse(json['date_don'] as String),
+        source: json['source'] as String? ?? 'declaratif',
+        demandeId: json['demande_id'] as String?,
+        createdAt: json['created_at'] != null
+            ? DateTime.tryParse(json['created_at'] as String)
+            : null,
+      );
+
+  bool get estQrValide => source == 'qr_valide';
+}
+
+/// Une demande publiée depuis public.demandes_sang (auteur = l'utilisateur).
+class HistoriqueDemande {
+  final String id;
+  final String groupeSanguinRecherche;
+  final String statut;
+  final DateTime createdAt;
+  final DateTime expiresAt;
+  final String? villeNom;
+
+  const HistoriqueDemande({
+    required this.id,
+    required this.groupeSanguinRecherche,
+    required this.statut,
+    required this.createdAt,
+    required this.expiresAt,
+    this.villeNom,
+  });
+
+  factory HistoriqueDemande.fromJson(Map<String, dynamic> json) =>
+      HistoriqueDemande(
+        id: json['id'] as String,
+        groupeSanguinRecherche:
+            json['groupe_sanguin_recherche'] as String? ?? '',
+        statut: json['statut'] as String? ?? 'active',
+        createdAt: DateTime.parse(json['created_at'] as String),
+        expiresAt: DateTime.parse(json['expires_at'] as String),
+        villeNom: json['ville_nom'] as String?,
+      );
+
+  bool get estActive => statut == 'active' && DateTime.now().isBefore(expiresAt);
+
+  String get statutLabel {
+    switch (statut) {
+      case 'active':
+        return estActive ? 'Active' : 'Expirée';
+      case 'en_cours':
+        return 'En cours';
+      case 'satisfaite':
+        return 'Satisfaite';
+      case 'expiree':
+        return 'Expirée';
+      case 'annulee':
+        return 'Annulée';
+      default:
+        return statut;
+    }
+  }
 }

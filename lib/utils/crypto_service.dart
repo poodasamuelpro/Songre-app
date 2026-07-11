@@ -29,20 +29,21 @@ class CryptoService {
 
   static enc.Key? _key;
 
-  // Clé de fallback pour les builds sans --dart-define (ne pas modifier)
-  // Cette clé est uniquement utilisée si SONGRE_ENCRYPT_KEY n'est pas fourni.
-  static const String _fallbackKey = 'SongreProdBurkinaFaso2026_SecureKey!';
+  // SEC-01 : _fallbackKey hardcodée supprimée.
+  // La clé DOIT être fournie via --dart-define=SONGRE_ENCRYPT_KEY=<32+ chars>.
+  // Un build sans clé échoue explicitement (StateError) plutôt que de chiffrer
+  // silencieusement avec une clé connue publiquement.
 
   static void init() {
-    final effectiveKey = (_envKey.isNotEmpty && _envKey.length >= 32)
-        ? _envKey
-        : _fallbackKey;
-    final keyBytes = utf8.encode(effectiveKey).sublist(0, 32);
-    _key = enc.Key(Uint8List.fromList(keyBytes));
-    if (kDebugMode && _envKey.isEmpty) {
-      debugPrint('[CryptoService] Clé de fallback utilisée. '
-          'En production, injectez --dart-define=SONGRE_ENCRYPT_KEY=<32_chars>');
+    if (_envKey.isEmpty || _envKey.length < 32) {
+      throw StateError(
+        '[CryptoService] Clé de chiffrement absente ou trop courte (< 32 chars). '
+        'Injectez --dart-define=SONGRE_ENCRYPT_KEY=<minimum_32_caracteres> '
+        'lors du build Flutter.',
+      );
     }
+    final keyBytes = utf8.encode(_envKey).sublist(0, 32);
+    _key = enc.Key(Uint8List.fromList(keyBytes));
   }
 
   /// Chiffre une valeur String → base64(IV):base64(ciphertext) AES-256-CBC

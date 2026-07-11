@@ -39,7 +39,7 @@ export type TemplateName =
 // templates HTML email.
 // ⚠️  D7 NOTE : URL à mettre à jour une fois le logo uploadé sur Supabase Storage.
 //     Exemple : https://<PROJECT_REF>.supabase.co/storage/v1/object/public/assets/logo_songre.png
-const LOGO_URL = "https://songre.bf/assets/logo_songre.png";
+const LOGO_URL = "https://ptomqwucvveuflfnyczo.supabase.co/storage/v1/object/public/assets/logo-songre.jpeg";
 
 // ── Base HTML template ────────────────────────────────────────────────────────
 
