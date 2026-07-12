@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../utils/secure_storage_service.dart';
 import '../utils/crypto_service.dart';
 import '../services/supabase_service.dart';
+import '../services/notification_service.dart'; // [P7] Token FCM
 
 // =====================================================================
 // APP STATE — SONGRE Production
@@ -117,6 +118,9 @@ class AppState extends ChangeNotifier {
 
         // [PERF-03] Phase 2 : rafraîchissement arrière-plan (non-bloquant)
         unawaited(_rafraichirDonneesBackground());
+        // [P7] Ré-enregistrer le token FCM à chaque restauration de session
+        // (le token peut avoir été renouvelé par Firebase depuis la dernière connexion).
+        unawaited(NotificationService.initialiser(_userId!));
         return;
       } else {
         await _purgerSessionLocale();
@@ -281,13 +285,31 @@ class AppState extends ChangeNotifier {
     // Sans ce garde, une exception non capturée laisse le spinner figé (S1-A).
     try {
       await _chargerVilles();
-      await _loadProfilAvecFallback();
+      final profilCharge = await _loadProfilAvecFallback();
       await _loadDemandes();
       await _chargerNotificationsBackend();
+      // [P7] Enregistrer le token FCM pour les notifications push.
+      // Non bloquant : une exception ici ne doit pas empêcher la connexion.
+      // Ignoré sur Web (kIsWeb guard interne à NotificationService).
+      unawaited(NotificationService.initialiser(_userId!));
       _recalculerCompatibilite();
+      // Si le profil n'a pu être chargé ni depuis le backend ni depuis le cache,
+      // remonter un avertissement — la session est valide, mais l'utilisateur
+      // doit compléter son profil ou vérifier sa connexion.
+      if (!profilCharge && _profil == null) {
+        _authError =
+            'Connecté, mais impossible de charger votre profil. '
+            'Vérifiez votre connexion et réessayez.';
+      }
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[AppState] connecter() — chargement post-auth: $e');
+      }
+      // En cas d'exception non anticipée, remonter l'erreur si le profil est absent.
+      if (_profil == null) {
+        _authError =
+            'Connecté, mais impossible de charger votre profil. '
+            'Vérifiez votre connexion et réessayez.';
       }
       // On ne déconnecte pas l'utilisateur : la session est valide.
       // Les données manquantes seront rechargées au prochain rafraîchissement.
@@ -622,28 +644,45 @@ class AppState extends ChangeNotifier {
   }
 
   /// Charge le profil en essayant d'abord le backend (source de vérité),
-  /// avec fallback sur le cache local si le backend échoue ou est vide.
-  Future<void> _loadProfilAvecFallback() async {
-    // 1. Essayer le backend (source de vérité)
+  /// avec 2 tentatives (retry après 1 s en cas d'erreur réseau passagère),
+  /// puis fallback sur le cache local.
+  ///
+  /// Retourne `true` si un profil a pu être chargé (backend ou cache),
+  /// `false` si aucune source n'a fourni de données.
+  Future<bool> _loadProfilAvecFallback() async {
+    // 1. Essayer le backend (source de vérité) — 2 tentatives max
     if (_userId != null && SupabaseService.estConfigured) {
-      try {
-        final profilBackend = await SupabaseService.lireProfil(
-          _userId!,
-          villesMap: _villesMap,
-        );
-        if (profilBackend != null) {
-          _profil = profilBackend;
-          // Mettre à jour le cache local avec les données backend fraîches
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(_keyProfil, jsonEncode(profilBackend.toJson()));
-          return;
+      for (int tentative = 0; tentative < 2; tentative++) {
+        try {
+          final profilBackend = await SupabaseService.lireProfil(
+            _userId!,
+            villesMap: _villesMap,
+          );
+          if (profilBackend != null) {
+            _profil = profilBackend;
+            // Mettre à jour le cache local avec les données backend fraîches
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString(_keyProfil, jsonEncode(profilBackend.toJson()));
+            return true;
+          }
+          // Profil confirmé absent côté serveur (utilisateur nouveau) — inutile de réessayer
+          break;
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('[AppState] _loadProfilAvecFallback() tentative ${tentative + 1}/2 : $e');
+          }
+          if (tentative == 0) {
+            // Première tentative échouée → attendre 1 s avant le retry
+            await Future.delayed(const Duration(seconds: 1));
+            continue;
+          }
+          // Deuxième tentative échouée → sortir et tenter le cache
         }
-      } catch (_) {
-        // Backend inaccessible — fallback cache ci-dessous
       }
     }
     // 2. Fallback sur le cache local
     await _loadProfil();
+    return _profil != null;
   }
 
   Future<void> _loadDemandes() async {

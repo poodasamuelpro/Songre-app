@@ -408,12 +408,18 @@ class _ConnexionFormState extends State<_ConnexionForm> {
     if (!mounted) return; // Guard pour les opérations UI suivantes (SnackBar, etc.)
 
     if (!ok) {
-      // [2.5] Incrémenter le compteur d'échecs
-      _echecsConnexion++;
-      if (_echecsConnexion >= _maxEchecs) {
-        _blocageJusquA = DateTime.now().add(_dureeBlocage);
-        _echecsConnexion = 0;
-      }
+      // [P4] Encapsuler dans setState() pour affichage immédiat du bandeau de blocage.
+      // Note : ce rate limiting est une protection UX de confort (anti-spam visuel).
+      // La protection anti-bruteforce réelle repose sur Supabase Auth (codes HTTP 429).
+      // Ce compteur vit dans l'état local du widget — il est réinitialisé si
+      // l'utilisateur quitte et revient sur l'écran (limitation inhérente, acceptable).
+      setState(() {
+        _echecsConnexion++;
+        if (_echecsConnexion >= _maxEchecs) {
+          _blocageJusquA = DateTime.now().add(_dureeBlocage);
+          _echecsConnexion = 0;
+        }
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -428,11 +434,32 @@ class _ConnexionFormState extends State<_ConnexionForm> {
         ),
       );
     } else {
-      // Succès — réinitialiser le compteur
-      _echecsConnexion = 0;
-      _blocageJusquA = null;
+      // [P3] Succès — réinitialiser le compteur et forcer la navigation
+      setState(() {
+        _echecsConnexion = 0;
+        _blocageJusquA = null;
+      });
+      // Afficher un avertissement si la session est valide mais le profil
+      // n'a pas pu être chargé (P2 — cas réseau dégradé, cache vide).
+      if (state.authError != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              state.authError!,
+              style: GoogleFonts.inter(fontSize: 13),
+            ),
+            backgroundColor: Colors.orange.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+      // [P3] Filet de sécurité : si le redirect GoRouter ne se déclenche pas
+      // immédiatement (ex. notifyListeners() tardif), forcer la navigation ici.
+      if (mounted) context.go('/home');
     }
-    // La navigation vers /home est gérée par le redirect GoRouter
   }
 
   Widget _buildEmailField() {

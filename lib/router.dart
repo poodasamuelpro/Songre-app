@@ -50,7 +50,10 @@ GoRouter buildRouter(AppState appState) {
       if (isAuth && hasProfil && isLogin) return '/home';
 
       // Authentifié SANS profil → forcer la création du profil
-      if (isAuth && !hasProfil && !isLogin && !isCompleteProfil) {
+      // Note : !isLogin retiré intentionnellement — cf. fix P1.
+      // Sans ce retrait, un utilisateur authentifié sans profil restait bloqué
+      // sur '/' car aucune règle ne matchait (isLogin=true rendait cette règle inerte).
+      if (isAuth && !hasProfil && !isCompleteProfil) {
         return '/completer-profil';
       }
 

@@ -42,10 +42,12 @@ class SupabaseService {
   );
 
   /// Secret partagé requis par l'Edge Function valider-token (étape 0).
-  /// Injecté via --dart-define=WEBHOOK_SECRET=...
-  /// Valeur Supabase Vault : "Donnersonsangcestsauvezdesvie-songre2026burkinafaso@"
+  /// Injecté exclusivement via --dart-define=WEBHOOK_SECRET=...
+  /// Aucune valeur ne doit jamais apparaître en clair dans ce fichier
+  /// ni dans l'historique Git.
+  /// Si ce secret a déjà été exposé, il doit être régénéré côté Supabase
+  /// Vault avant tout déploiement (voir documentation interne).
   // SEC-02 : valeur par défaut hardcodée supprimée.
-  // La valeur réelle est injectée via --dart-define=WEBHOOK_SECRET=...
   // Si absent au build, la chaîne sera vide et l'EF valider-token rejettera
   // la requête (échec explicite, pas de secret connu publiquement).
   static const String _webhookSecret = String.fromEnvironment(
