@@ -1001,15 +1001,18 @@ class ProfilScreen extends StatelessWidget {
   void _showSettings(BuildContext context, AppState state) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: SauveColors.creme,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+      builder: (ctx) => SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+              24, 20, 24, 40 + MediaQuery.of(ctx).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
             Center(
               child: Container(
                 width: 40,
@@ -1119,10 +1122,12 @@ class ProfilScreen extends StatelessWidget {
           ],
         ),
       ),
+    ),
     );
   }
 
   /// Affiche le statut du consentement de l'utilisateur (lecture en base).
+
   void _showConsentement(BuildContext context, AppState state) {
     final userId = state.userId;
     if (userId == null) return;
