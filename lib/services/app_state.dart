@@ -49,7 +49,8 @@ class AppState extends ChangeNotifier {
   Map<int, String> _villesMap = {};
 
   // ---- Données ----
-  List<DemandeSang> _demandes = [];
+  List<DemandeSang> _demandes = [];           // Demandes filtrées par ville (accueil + compatibilité)
+  List<DemandeSang> _toutesLesDemandes = [];  // Toutes les demandes actives (onglet Demandes)
   List<NotificationSauve> _notifications = [];
 
   // ---- [PERF-01] Cache de compatibilité pré-calculé ----
@@ -68,6 +69,8 @@ class AppState extends ChangeNotifier {
   /// éviter un appel réseau redondant à obtenirEmailCourant() (correction S4).
   String? get emailCourant => _emailCourant;
   List<DemandeSang> get demandes => _demandes;
+  /// Toutes les demandes actives, toutes villes confondues — pour l'onglet "Demandes".
+  List<DemandeSang> get toutesLesDemandes => _toutesLesDemandes;
   List<NotificationSauve> get notifications => _notifications;
   int get notifNonLues => _notifications.where((n) => !n.lue).length;
   List<Ville> get villes => _villes;
@@ -341,6 +344,7 @@ class AppState extends ChangeNotifier {
     _suppressionProgrammee = false;
     _dateSuppression = null;
     _demandes = [];
+    _toutesLesDemandes = [];
     _notifications = [];
     _villes = [];
     _villesMap = {};
@@ -467,6 +471,23 @@ class AppState extends ChangeNotifier {
       _recalculerCompatibilite();
       await _sauvegarderDemandes();
       notifyListeners();
+    }
+  }
+
+  /// Actualise la liste complète des demandes (toutes villes) pour l'onglet "Demandes".
+  /// N'affecte pas [_demandes] (demandes par ville pour l'accueil + compatibilité).
+  Future<void> actualiserToutesLesDemandes() async {
+    if (!SupabaseService.estConfigured) return;
+    try {
+      final toutes = await SupabaseService.lireToutesDemandesActives(
+        villesMap: _villesMap,
+      );
+      _toutesLesDemandes = toutes;
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AppState] actualiserToutesLesDemandes: $e');
+      }
     }
   }
 

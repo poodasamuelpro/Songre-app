@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/sauve_theme.dart';
 import '../services/app_state.dart';
+import '../services/supabase_service.dart';
 import '../models/models.dart';
 import 'package:intl/intl.dart';
 import 'change_password_screen.dart';
@@ -1033,6 +1034,15 @@ class ProfilScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             _buildSettingsItem(
+              icon: Icons.verified_user_outlined,
+              label: 'Mon consentement',
+              onTap: () {
+                Navigator.pop(ctx);
+                _showConsentement(context, state);
+              },
+            ),
+            const SizedBox(height: 8),
+            _buildSettingsItem(
               icon: Icons.lock_outline,
               label: 'Modifier mon mot de passe',
               onTap: () {
@@ -1100,6 +1110,144 @@ class ProfilScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  /// Affiche le statut du consentement de l'utilisateur (lecture en base).
+  void _showConsentement(BuildContext context, AppState state) {
+    final userId = state.userId;
+    if (userId == null) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => FutureBuilder<Map<String, dynamic>?>(
+        future: SupabaseService.lireConsentement(userId),
+        builder: (ctx, snapshot) {
+          Widget content;
+
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            content = const SizedBox(
+              height: 80,
+              child: Center(child: CircularProgressIndicator()),
+            );
+          } else if (snapshot.hasError || snapshot.data == null) {
+            content = Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.warning_amber_outlined,
+                    color: Colors.orange.shade700, size: 32),
+                const SizedBox(height: 12),
+                Text(
+                  'Consentement non trouvé en base de données.',
+                  style: GoogleFonts.inter(fontSize: 14, color: SauveColors.encre),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Si vous avez créé votre profil avant la mise à jour, '
+                  'votre consentement n\'a pas été enregistré. '
+                  'Contactez le support pour régulariser.',
+                  style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: SauveColors.gris,
+                      height: 1.5),
+                ),
+              ],
+            );
+          } else {
+            final data = snapshot.data!;
+            final santeBool = data['consentement_sante'] as bool? ?? false;
+            final geolocBool = data['consentement_geoloc'] as bool? ?? false;
+            final dateRaw = data['consentement_date'] as String?;
+            final version = data['version_politique'] as String? ?? 'N/A';
+            final dateFormatee = dateRaw != null
+                ? DateFormat('dd/MM/yyyy à HH:mm', 'fr_FR')
+                    .format(DateTime.parse(dateRaw).toLocal())
+                : 'N/A';
+
+            content = Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildConsentRow(
+                  icon: santeBool ? Icons.check_circle : Icons.cancel,
+                  color: santeBool ? SauveColors.vertFond : SauveColors.rouge,
+                  label: 'Données de santé',
+                  valeur: santeBool ? 'Accepté' : 'Non accepté',
+                ),
+                const SizedBox(height: 8),
+                _buildConsentRow(
+                  icon: geolocBool ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: geolocBool ? SauveColors.vertFond : SauveColors.gris,
+                  label: 'Géolocalisation',
+                  valeur: geolocBool ? 'Accepté' : 'Non demandé',
+                ),
+                const Divider(height: 24),
+                Text(
+                  'Date : $dateFormatee',
+                  style: GoogleFonts.inter(fontSize: 12, color: SauveColors.gris),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Politique v$version',
+                  style: GoogleFonts.inter(fontSize: 12, color: SauveColors.gris),
+                ),
+              ],
+            );
+          }
+
+          return AlertDialog(
+            backgroundColor: SauveColors.creme,
+            title: Text(
+              'Mon consentement',
+              style: GoogleFonts.archivo(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: SauveColors.encre,
+              ),
+            ),
+            content: content,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(
+                  'Fermer',
+                  style: GoogleFonts.inter(color: SauveColors.rouge),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildConsentRow({
+    required IconData icon,
+    required Color color,
+    required String label,
+    required String valeur,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: SauveColors.encre)),
+              Text(valeur,
+                  style: GoogleFonts.inter(
+                      fontSize: 12, color: SauveColors.gris)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

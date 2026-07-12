@@ -452,6 +452,84 @@ class SupabaseService {
     }
   }
 
+  /// Enregistre le consentement de l'utilisateur dans public.consentements.
+  ///
+  /// Cette table est distincte de profils_donneurs — elle stocke les
+  /// consentements légaux (données de santé, géolocalisation, version politique).
+  /// Utilise UPSERT (merge-duplicates) pour gérer les ré-inscriptions.
+  ///
+  /// [userId]            : UUID de l'utilisateur
+  /// [consentementSante] : case "J'accepte le traitement de mes données de santé" cochée
+  /// [consentementGeoloc]: case géolocalisation (false par défaut si non demandé)
+  /// [versionPolitique]  : version de la politique de confidentialité en vigueur
+  static Future<bool> enregistrerConsentement({
+    required String userId,
+    required bool consentementSante,
+    bool consentementGeoloc = false,
+    String versionPolitique = '1.0',
+  }) async {
+    if (!estConfigured) return false;
+
+    final hdrs = {
+      ..._restHeaders(withAuth: true),
+      'Prefer': 'return=minimal,resolution=merge-duplicates',
+    };
+    final body = jsonEncode({
+      'user_id': userId,
+      'consentement_sante': consentementSante,
+      'consentement_geoloc': consentementGeoloc,
+      'consentement_date': DateTime.now().toUtc().toIso8601String(),
+      'version_politique': versionPolitique,
+    });
+
+    try {
+      final url = Uri.parse('$_supabaseUrl/rest/v1/consentements');
+      final resp = await _requeteAvecRefresh(
+        () => http.post(url, headers: hdrs, body: body)
+            .timeout(const Duration(seconds: 10)),
+      );
+      final ok = resp.statusCode == 201 ||
+          resp.statusCode == 200 ||
+          resp.statusCode == 204;
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] enregistrerConsentement: ${ok ? "OK" : "ERREUR ${resp.statusCode}"}');
+      }
+      return ok;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] enregistrerConsentement error: $e');
+      }
+      return false;
+    }
+  }
+
+  /// Lit le consentement d'un utilisateur depuis public.consentements.
+  /// Retourne une Map avec les champs du consentement, ou null si absent.
+  static Future<Map<String, dynamic>?> lireConsentement(String userId) async {
+    if (!estConfigured) return null;
+    try {
+      final url = Uri.parse(
+        '$_supabaseUrl/rest/v1/consentements'
+        '?user_id=eq.$userId'
+        '&limit=1',
+      );
+      final hdrs = _restHeaders(withAuth: true);
+      final resp = await _requeteAvecRefresh(
+        () => http.get(url, headers: hdrs).timeout(const Duration(seconds: 10)),
+      );
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body) as List;
+        if (list.isNotEmpty) return list.first as Map<String, dynamic>;
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] lireConsentement error: $e');
+      }
+      return null;
+    }
+  }
+
   /// Charge le profil depuis le backend, déchiffre poids + CI.
   /// Nécessite la map des villes pour résoudre ville_nom.
   static Future<ProfilDonneur?> lireProfil(
@@ -525,6 +603,49 @@ class SupabaseService {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[SupabaseService] lireDemandesActives error: $e');
+      }
+      return [];
+    }
+  }
+
+  /// Charge TOUTES les demandes actives, toutes villes confondues.
+  /// Utilisée par la page "Demandes" (onglet navigation) qui doit afficher
+  /// l'ensemble des demandes sans filtre géographique.
+  /// Distinct de [lireDemandesActives] qui filtre par ville (accueil + compatibilité).
+  static Future<List<DemandeSang>> lireToutesDemandesActives({
+    Map<int, String>? villesMap,
+    Map<int, String>? structuresMap,
+  }) async {
+    if (!estConfigured) return [];
+
+    try {
+      final now = DateTime.now().toUtc().toIso8601String();
+      final url = Uri.parse(
+        '$_supabaseUrl/rest/v1/demandes_sang'
+        '?statut=eq.active'
+        '&expires_at=gt.$now'
+        '&order=created_at.desc'
+        '&limit=100',
+      );
+      final hdrs = _restHeaders(withAuth: true);
+      final resp = await _requeteAvecRefresh(
+        () => http.get(url, headers: hdrs).timeout(const Duration(seconds: 10)),
+      );
+
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body) as List;
+        return list
+            .map((e) => DemandeSang.fromJson(
+                  e as Map<String, dynamic>,
+                  villesMap: villesMap,
+                  structuresMap: structuresMap,
+                ))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] lireToutesDemandesActives error: $e');
       }
       return [];
     }

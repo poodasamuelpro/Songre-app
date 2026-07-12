@@ -8,7 +8,8 @@ import '../models/models.dart';
 import '../widgets/demande_card.dart';
 
 // =====================================================================
-// ÉCRAN — Liste complète des demandes (onglet "Demandes")
+// ÉCRAN — Liste complète des demandes TOUTES VILLES (onglet "Demandes")
+// Distinct de l'accueil qui filtre par la ville du profil utilisateur.
 // =====================================================================
 class DemandesScreen extends StatefulWidget {
   const DemandesScreen({super.key});
@@ -21,12 +22,25 @@ class _DemandesScreenState extends State<DemandesScreen> {
   GroupeSanguin? _filtreGroupe;
 
   @override
+  void initState() {
+    super.initState();
+    // Charger toutes les demandes dès l'ouverture de l'onglet.
+    // addPostFrameCallback garantit que le contexte Provider est disponible.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AppState>().actualiserToutesLesDemandes();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final profil = state.profil;
-    var demandes = state.demandes.where((d) => d.estActive).toList();
+    // [P6] Utiliser toutesLesDemandes (toutes villes) au lieu de demandes (filtrée par ville)
+    var demandes = state.toutesLesDemandes.where((d) => d.estActive).toList();
 
-    // Filtre par groupe sanguin
+    // Filtre optionnel par groupe sanguin (choix utilisateur dans l'UI)
     if (_filtreGroupe != null) {
       demandes = demandes
           .where((d) => d.groupeSanguinRecherche == _filtreGroupe)
@@ -88,8 +102,9 @@ class _DemandesScreenState extends State<DemandesScreen> {
             // Liste
             Expanded(
               child: RefreshIndicator(
+                // [P6] Pull-to-refresh recharge toutes les demandes (sans filtre ville)
                 onRefresh: () async =>
-                    state.actualiserDemandes(),
+                    state.actualiserToutesLesDemandes(),
                 color: SauveColors.rouge,
                 child: demandes.isEmpty
                     ? _buildVide()

@@ -1,3 +1,4 @@
+import 'dart:async'; // unawaited()
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -1168,6 +1169,18 @@ class _ProfilFormState extends State<_ProfilForm> {
     );
 
     await state.sauvegarderProfil(profil);
+
+    // [P7] Enregistrer le consentement dans public.consentements.
+    // Appel fire-and-forget : une erreur réseau ici ne bloque pas la création
+    // du profil (le consentement sera tenté à nouveau à la prochaine occasion).
+    // La version '1.0' correspond à la politique de confidentialité initiale.
+    unawaited(SupabaseService.enregistrerConsentement(
+      userId: userId,
+      consentementSante: _consentement,
+      consentementGeoloc: false, // Géolocalisation non implémentée pour l'instant
+      versionPolitique: '1.0',
+    ));
+
     // GoRouter redirect voit isAuthenticated=true + profil!=null → navigue vers /home
     // L'appel explicite à context.go('/home') est maintenu comme fallback de sécurité
     // au cas où le redirect GoRouter ne se déclencherait pas immédiatement.
