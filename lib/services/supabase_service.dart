@@ -291,8 +291,12 @@ class SupabaseService {
   }
 
   /// Envoie un email de réinitialisation de mot de passe via Supabase Auth.
-  /// Retourne true si l'email a été envoyé, false sinon.
-  /// L'email arrive avec un lien magique qui redirige vers l'app.
+  ///
+  /// Flux OTP (depuis session 5) : le template email Supabase affiche un code
+  /// à 6 chiffres ({{ .Token }}). L'utilisateur saisit ce code dans l'app —
+  /// aucun deep link ni lien cliquable n'est nécessaire.
+  ///
+  /// Supabase retourne 200 même si l'email n'existe pas (sécurité anti-enum).
   static Future<ResetPasswordResult> envoyerEmailReinitialisation(
       String email) async {
     if (!estConfigured) {
@@ -307,11 +311,8 @@ class SupabaseService {
         headers: _headers(),
         body: jsonEncode({
           'email': email,
-          // redirectTo : deep link intercept par Android (intent-filter scheme songre://)
-          // → GoRouter route vers /reset-password?access_token=...&type=recovery
-          // Doit être whitelisté dans Supabase Dashboard →
-          // Authentication → URL Configuration → Redirect URLs.
-          'redirectTo': 'songre://reset-password',
+          // redirectTo retiré : flux OTP — aucun lien cliquable n'est envoyé.
+          // Le template email Supabase affiche uniquement le code {{ .Token }}.
         }),
       ).timeout(const Duration(seconds: 15));
 
@@ -331,6 +332,144 @@ class SupabaseService {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[SupabaseService] envoyerEmailReinitialisation error: $e');
+      }
+      return const ResetPasswordResult(
+        success: false,
+        error: 'Connexion impossible. Vérifiez votre réseau.',
+      );
+    }
+  }
+
+  /// Vérifie le code OTP de réinitialisation de mot de passe.
+  ///
+  /// Appelle POST /auth/v1/verify avec type=recovery.
+  /// En cas de succès, positionne les tokens en mémoire et retourne
+  /// un [ResetPasswordResult] avec [accessToken] renseigné.
+  /// L'appelant peut ensuite appeler [changerMotDePasseAvecToken] pour
+  /// mettre à jour le mot de passe avec ce token.
+  static Future<ResetPasswordResult> verifierCodeReinitialisation({
+    required String email,
+    required String code,
+  }) async {
+    if (!estConfigured) {
+      return const ResetPasswordResult(
+        success: false,
+        error: 'Backend non configuré.',
+      );
+    }
+    try {
+      final resp = await http.post(
+        Uri.parse('$_supabaseUrl/auth/v1/verify'),
+        headers: _headers(),
+        body: jsonEncode({
+          'email': email,
+          'token': code,
+          'type': 'recovery',
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final token = data['access_token'] as String?;
+        final refresh = data['refresh_token'] as String?;
+        if (token != null) {
+          _accessToken = token;
+          _refreshToken = refresh;
+          final user = data['user'] as Map<String, dynamic>?;
+          _currentUserId = user?['id'] as String?;
+        }
+        return ResetPasswordResult(success: true, accessToken: token);
+      }
+
+      // Traduction des erreurs OTP fréquentes en français
+      String errMsg = 'Code invalide (${resp.statusCode}).';
+      try {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final raw = (data['error_description'] as String? ??
+                data['msg'] as String? ??
+                data['error'] as String? ??
+                '')
+            .toLowerCase();
+
+        if (raw.contains('token has expired') ||
+            raw.contains('otp expired') ||
+            raw.contains('expired')) {
+          errMsg = 'Ce code a expiré. Demandez un nouveau code.';
+        } else if (raw.contains('invalid') ||
+            raw.contains('incorrect') ||
+            raw.contains('not found')) {
+          errMsg = 'Code incorrect. Vérifiez le code reçu par email.';
+        } else if (raw.contains('rate limit') ||
+            raw.contains('too many') ||
+            resp.statusCode == 429) {
+          errMsg = 'Trop de tentatives. Patientez avant de réessayer.';
+        } else if (raw.isNotEmpty) {
+          errMsg = 'Vérification échouée : $raw';
+        }
+      } catch (_) {}
+
+      return ResetPasswordResult(success: false, error: errMsg);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] verifierCodeReinitialisation error: $e');
+      }
+      return const ResetPasswordResult(
+        success: false,
+        error: 'Connexion impossible. Vérifiez votre réseau.',
+      );
+    }
+  }
+
+  /// Modifie le mot de passe en utilisant un [accessToken] de récupération
+  /// obtenu via [verifierCodeReinitialisation].
+  ///
+  /// Utilise PUT /auth/v1/user avec Authorization: Bearer [accessToken].
+  static Future<ResetPasswordResult> changerMotDePasseAvecToken({
+    required String accessToken,
+    required String nouveauMotDePasse,
+  }) async {
+    if (!estConfigured) {
+      return const ResetPasswordResult(
+        success: false,
+        error: 'Backend non configuré.',
+      );
+    }
+    try {
+      final resp = await http.put(
+        Uri.parse('$_supabaseUrl/auth/v1/user'),
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': _anonKey,
+          'Authorization': 'Bearer $accessToken',
+        },
+        body: jsonEncode({'password': nouveauMotDePasse}),
+      ).timeout(const Duration(seconds: 15));
+
+      if (resp.statusCode == 200) {
+        return const ResetPasswordResult(success: true);
+      }
+
+      String errMsg = 'Impossible de modifier le mot de passe (${resp.statusCode}).';
+      try {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final raw = (data['message'] as String? ??
+                data['error_description'] as String? ??
+                data['msg'] as String? ??
+                '')
+            .toLowerCase();
+        if (raw.contains('same password') || raw.contains('different')) {
+          errMsg = 'Le nouveau mot de passe doit être différent de l\'ancien.';
+        } else if (raw.contains('weak') || raw.contains('short')) {
+          errMsg = 'Mot de passe trop faible. Minimum 8 caractères.';
+        } else if (raw.isNotEmpty) {
+          errMsg = 'Erreur : $raw';
+        }
+      } catch (_) {}
+
+      return ResetPasswordResult(success: false, error: errMsg);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] changerMotDePasseAvecToken error: $e');
       }
       return const ResetPasswordResult(
         success: false,
@@ -1392,31 +1531,6 @@ class SupabaseService {
     }
   }
 
-  /// Envoie un email de réinitialisation de mot de passe.
-  /// Appelle POST /auth/v1/recover.
-  static Future<bool> reinitialiserMotDePasse({required String email}) async {
-    if (!estConfigured) return false;
-    try {
-      final resp = await http
-          .post(
-            Uri.parse('$_supabaseUrl/auth/v1/recover'),
-            headers: _headers(),
-            body: jsonEncode({
-            'email': email,
-            // Deep link qui s'ouvre dans l'app pour afficher ResetPasswordScreen.
-            // Doit être enregistré dans Supabase Dashboard →
-            // Authentication → URL Configuration → Redirect URLs.
-            'redirectTo': 'songre://reset-password',
-          }),
-          )
-          .timeout(const Duration(seconds: 10));
-      // 200 = email envoyé, 204 = même résultat sans body
-      return resp.statusCode == 200 || resp.statusCode == 204;
-    } catch (e) {
-      if (kDebugMode) debugPrint('[SupabaseService] reinitialiserMotDePasse: $e');
-      return false;
-    }
-  }
 
   /// Déclenche la notification mdp_modifie via l'EF mdp-modifie-auth.
   /// Appelé en fire-and-forget après un changement de mot de passe réussi.
@@ -1685,7 +1799,15 @@ class ResetPasswordResult {
   final bool success;
   final String? error;
 
-  const ResetPasswordResult({required this.success, this.error});
+  /// Access token JWT obtenu après vérification OTP réussie.
+  /// Renseigné uniquement par [SupabaseService.verifierCodeReinitialisation].
+  final String? accessToken;
+
+  const ResetPasswordResult({
+    required this.success,
+    this.error,
+    this.accessToken,
+  });
 }
 
 // =====================================================================

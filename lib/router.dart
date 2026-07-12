@@ -35,9 +35,8 @@ GoRouter buildRouter(AppState appState) {
       final location = state.matchedLocation;
       final isLogin = location == '/';
       final isCompleteProfil = location == '/completer-profil';
-      // reset-password : accessible TOUJOURS, qu'on soit auth ou non.
-      // Un utilisateur authentifié peut aussi cliquer sur le lien email.
-      // On vérifie le début du path pour couvrir les cas avec fragment.
+      // reset-password : accessible TOUJOURS (flux OTP — aucun deep link).
+      // Qu'on soit authentifié ou non, l'écran de réinitialisation est navigable.
       final isResetPassword = location == '/reset-password' ||
           location.startsWith('/reset-password');
 
@@ -117,46 +116,13 @@ GoRouter buildRouter(AppState appState) {
         parentNavigatorKey: _rootNavigatorKey,
         path: '/reset-password',
         pageBuilder: (ctx, state) {
-          // ──────────────────────────────────────────────────────────────────
-          // EXTRACTION DU TOKEN — Supabase peut envoyer le token de deux façons :
-          //
-          // 1. QUERY PARAMS (format moderne, PKCEflow) :
-          //    songre://reset-password?access_token=eyJ...&type=recovery
-          //
-          // 2. FRAGMENT HASH (format classique / lien email direct) :
-          //    songre://reset-password#access_token=eyJ...&type=recovery
-          //    https://songre.vercel.app/reset-password#access_token=eyJ...
-          //
-          // state.uri.queryParameters ne contient QUE les params après '?'.
-          // Le fragment '#...' est dans state.uri.fragment et doit être parsé
-          // manuellement car Dart Uri ne le parse pas automatiquement.
-          // ──────────────────────────────────────────────────────────────────
-
-          // Étape 1 : tenter les query params (format PKCEflow)
-          String accessToken = state.uri.queryParameters['access_token'] ??
-              state.uri.queryParameters['token'] ??
-              '';
-          String type = state.uri.queryParameters['type'] ?? '';
-
-          // Étape 2 : si vide, parser le fragment manuellement
-          if (accessToken.isEmpty) {
-            final fragment = state.uri.fragment; // ex: "access_token=eyJ...&type=recovery"
-            if (fragment.isNotEmpty) {
-              final fragmentParams = Uri.splitQueryString(fragment);
-              accessToken = fragmentParams['access_token'] ??
-                  fragmentParams['token'] ??
-                  '';
-              if (type.isEmpty) {
-                type = fragmentParams['type'] ?? '';
-              }
-            }
-          }
+          // Flux OTP (session 5) : l'email est passé en extra depuis _MdpOublieForm
+          // après l'envoi réussi du code OTP. L'écran gère lui-même les 2 étapes
+          // (code + nouveau mot de passe) sans dépendance à un deep link.
+          final emailInitial = state.extra as String? ?? '';
 
           return CustomTransitionPage(
-            child: ResetPasswordScreen(
-              accessToken: accessToken,
-              type: type,
-            ),
+            child: ResetPasswordScreen(emailInitial: emailInitial),
             transitionsBuilder: (ctx, animation, _, child) {
               return FadeTransition(opacity: animation, child: child);
             },

@@ -116,20 +116,31 @@ class SecureStorageService {
     return _storage.read(key: _keyAuthType);
   }
 
-  /// Supprime TOUTES les données de session
+  /// Supprime TOUTES les données de session.
+  /// Chaque clé est supprimée dans son propre try/catch : une PlatformException
+  /// sur une clé (ex: Android Keystore verrouillé ou corrompu) ne bloque pas
+  /// la suppression des autres et ne remonte jamais d'exception bloquante.
   static Future<void> supprimerSession() async {
     if (kIsWeb) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_keyUserId);
-      await prefs.remove(_keyAccessToken);
-      await prefs.remove(_keyRefreshToken);
-      await prefs.remove(_keyAuthType);
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_keyUserId);
+        await prefs.remove(_keyAccessToken);
+        await prefs.remove(_keyRefreshToken);
+        await prefs.remove(_keyAuthType);
+      } catch (e) {
+        if (kDebugMode) debugPrint('[SecureStorageService] supprimerSession (web) error: $e');
+      }
       return;
     }
-    await _storage.delete(key: _keyUserId);
-    await _storage.delete(key: _keyAccessToken);
-    await _storage.delete(key: _keyRefreshToken);
-    await _storage.delete(key: _keyAuthType);
+    for (final key in [_keyUserId, _keyAccessToken, _keyRefreshToken, _keyAuthType]) {
+      try {
+        await _storage.delete(key: key);
+      } catch (e) {
+        if (kDebugMode) debugPrint('[SecureStorageService] delete($key) error: $e');
+        // Ne pas laisser une clé en erreur bloquer la suppression des autres.
+      }
+    }
   }
 
   static Future<bool> sessionExiste() async {

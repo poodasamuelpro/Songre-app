@@ -1,34 +1,34 @@
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import '../theme/sauve_theme.dart';
 import '../services/supabase_service.dart';
 
 // =====================================================================
-// ÉCRAN — Réinitialisation du mot de passe
-// Accessible via deep link : songre://reset-password?access_token=xxx&type=recovery
-// Ou via HTTPS : https://songre.vercel.app/reset-password?access_token=xxx
+// ÉCRAN — Réinitialisation du mot de passe par code OTP
 //
-// Flow Supabase :
-//   1. L'utilisateur clique le lien email → Supabase redirige vers ce schéma
-//   2. Android intercepte le deep link → GoRouter route /reset-password
-//   3. access_token extrait du query param → utilisé pour PATCH /auth/v1/user
+// Flux (depuis session 5) :
+//   Étape A : saisie email → envoi du code OTP via /auth/v1/recover
+//   Étape B : saisie du code à 6 chiffres + nouveau mot de passe
+//             → vérification via /auth/v1/verify (type=recovery)
+//             → changement via /auth/v1/user (Bearer = token OTP)
+//
+// L'ancien flux deep link (songre://reset-password?access_token=...) a été
+// abandonné : trop dépendant de la configuration Android et peu fiable.
+// Ce flux OTP fonctionne entièrement dans l'app, sans navigateur intermédiaire.
 // =====================================================================
 
-class ResetPasswordScreen extends StatefulWidget {
-  /// Token d'accès extrait du deep link (query param access_token).
-  final String accessToken;
+// Étapes internes de l'écran
+enum _EtapeReset { email, code, succes }
 
-  /// Type du lien (ex: "recovery") — présent dans certains liens Supabase.
-  final String type;
+class ResetPasswordScreen extends StatefulWidget {
+  /// Email pré-rempli, passé depuis _MdpOublieForm pour éviter une ressaisie.
+  final String emailInitial;
 
   const ResetPasswordScreen({
     super.key,
-    required this.accessToken,
-    this.type = '',
+    this.emailInitial = '',
   });
 
   @override
@@ -36,70 +36,166 @@ class ResetPasswordScreen extends StatefulWidget {
 }
 
 class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
-  final _formKey = GlobalKey<FormState>();
+  _EtapeReset _etape = _EtapeReset.email;
+
+  // Étape A — email
+  final _emailFormKey = GlobalKey<FormState>();
+  final _emailCtrl = TextEditingController();
+  bool _loadingEmail = false;
+  String? _erreurEmail;
+
+  // Étape B — code + nouveau mot de passe
+  final _codeFormKey = GlobalKey<FormState>();
+  final _codeCtrl = TextEditingController();
   final _mdpCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
-  bool _loading = false;
+  bool _loadingCode = false;
   bool _mdpVisible = false;
   bool _confirmVisible = false;
-  bool _succes = false;
-  String? _erreur;
+  String? _erreurCode;
+
+  // (token OTP stocké en mémoire temporairement pour usage futur si besoin)
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.emailInitial.isNotEmpty) {
+      _emailCtrl.text = widget.emailInitial;
+    }
+  }
 
   @override
   void dispose() {
+    _emailCtrl.dispose();
+    _codeCtrl.dispose();
     _mdpCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
   }
 
-  bool get _tokenValide => widget.accessToken.isNotEmpty;
+  // ── Étape A : envoi du code ─────────────────────────────────────────
 
-  Future<void> _reinitialiser() async {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _envoyerCode() async {
+    if (!_emailFormKey.currentState!.validate()) return;
     setState(() {
-      _loading = true;
-      _erreur = null;
+      _loadingEmail = true;
+      _erreurEmail = null;
     });
 
-    try {
-      // PATCH /auth/v1/user avec le Bearer = access_token de récupération
-      final resp = await http.put(
-        Uri.parse('${SupabaseService.supabaseUrl}/auth/v1/user'),
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SupabaseService.anonKey,
-          'Authorization': 'Bearer ${widget.accessToken}',
-        },
-        body: jsonEncode({'password': _mdpCtrl.text}),
-      ).timeout(const Duration(seconds: 15));
+    final result = await SupabaseService.envoyerEmailReinitialisation(
+      _emailCtrl.text.trim(),
+    );
 
-      if (!mounted) return;
+    if (!mounted) return;
 
-      if (resp.statusCode == 200) {
-        setState(() {
-          _succes = true;
-          _loading = false;
-        });
-      } else {
-        final data = jsonDecode(resp.body) as Map<String, dynamic>?;
-        final msg = data?['message'] as String? ??
-            data?['error_description'] as String? ??
-            data?['msg'] as String? ??
-            'Erreur lors de la réinitialisation (${resp.statusCode}).';
-        setState(() {
-          _erreur = msg;
-          _loading = false;
-        });
-      }
-    } catch (e) {
-      if (kDebugMode) debugPrint('[ResetPasswordScreen] error: $e');
-      if (!mounted) return;
+    if (result.success) {
       setState(() {
-        _erreur = 'Connexion impossible. Vérifiez votre réseau.';
-        _loading = false;
+        _etape = _EtapeReset.code;
+        _loadingEmail = false;
+      });
+    } else {
+      setState(() {
+        _erreurEmail = result.error;
+        _loadingEmail = false;
       });
     }
   }
+
+  // ── Étape B : vérification OTP + changement de mot de passe ─────────
+
+  Future<void> _verifierEtChanger() async {
+    if (!_codeFormKey.currentState!.validate()) return;
+    setState(() {
+      _loadingCode = true;
+      _erreurCode = null;
+    });
+
+    final email = _emailCtrl.text.trim();
+    final code = _codeCtrl.text.trim();
+
+    // Phase 1 : vérifier le code OTP
+    final verif = await SupabaseService.verifierCodeReinitialisation(
+      email: email,
+      code: code,
+    );
+
+    if (!mounted) return;
+
+    if (!verif.success) {
+      setState(() {
+        _erreurCode = verif.error;
+        _loadingCode = false;
+      });
+      return;
+    }
+
+    final token = verif.accessToken;
+    if (token == null || token.isEmpty) {
+      setState(() {
+        _erreurCode = 'Réponse inattendue du serveur. Réessayez.';
+        _loadingCode = false;
+      });
+      return;
+    }
+
+    // Phase 2 : changer le mot de passe avec le token obtenu
+    final changement = await SupabaseService.changerMotDePasseAvecToken(
+      accessToken: token,
+      nouveauMotDePasse: _mdpCtrl.text,
+    );
+
+    if (!mounted) return;
+
+    if (changement.success) {
+      setState(() {
+        _etape = _EtapeReset.succes;
+        _loadingCode = false;
+      });
+    } else {
+      setState(() {
+        _erreurCode = changement.error;
+        _loadingCode = false;
+      });
+    }
+  }
+
+  // ── Renvoyer le code ────────────────────────────────────────────────
+
+  Future<void> _renvoyerCode() async {
+    setState(() {
+      _erreurCode = null;
+      _codeCtrl.clear();
+    });
+
+    final result = await SupabaseService.envoyerEmailReinitialisation(
+      _emailCtrl.text.trim(),
+    );
+
+    if (!mounted) return;
+
+    if (result.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Un nouveau code a été envoyé à ${_emailCtrl.text.trim()}',
+            style: GoogleFonts.inter(fontSize: 13),
+          ),
+          backgroundColor: SauveColors.vert,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } else {
+      setState(() {
+        _erreurCode = result.error ?? 'Impossible de renvoyer le code.';
+      });
+    }
+  }
+
+  // ── Build principal ─────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -112,192 +208,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 32),
-
-              // ── En-tête ────────────────────────────────────────────────
-              Row(
-                children: [
-                  Image.asset(
-                    'assets/images/logo_songre.png',
-                    height: 40,
-                    errorBuilder: (_, __, ___) => const Icon(
-                      Icons.favorite,
-                      color: SauveColors.rouge,
-                      size: 40,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'SONGRE',
-                    style: GoogleFonts.archivo(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: SauveColors.encre,
-                    ),
-                  ),
-                ],
-              ),
+              _buildEnTete(),
               const SizedBox(height: 32),
 
-              if (_succes) ...[
-                // ── Succès ───────────────────────────────────────────────
-                _buildSuccesCard(context),
-              ] else if (!_tokenValide) ...[
-                // ── Token manquant / expiré ──────────────────────────────
-                _buildTokenInvalide(context),
-              ] else ...[
-                // ── Formulaire ───────────────────────────────────────────
-                Text(
-                  'Nouveau mot de passe',
-                  style: GoogleFonts.archivo(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    color: SauveColors.encre,
-                    height: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Choisissez un mot de passe sécurisé pour votre compte SONGRE.',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    color: SauveColors.gris,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Nouveau mot de passe
-                      _label('Nouveau mot de passe'),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _mdpCtrl,
-                        obscureText: !_mdpVisible,
-                        decoration: _inputDeco(
-                          hint: 'Au moins 8 caractères',
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _mdpVisible
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
-                              color: SauveColors.gris,
-                              size: 20,
-                            ),
-                            onPressed: () =>
-                                setState(() => _mdpVisible = !_mdpVisible),
-                          ),
-                        ),
-                        validator: (v) {
-                          if (v == null || v.isEmpty) {
-                            return 'Le mot de passe est requis.';
-                          }
-                          if (v.length < 8) {
-                            return 'Minimum 8 caractères.';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 18),
-
-                      // Confirmation
-                      _label('Confirmer le mot de passe'),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _confirmCtrl,
-                        obscureText: !_confirmVisible,
-                        decoration: _inputDeco(
-                          hint: 'Répétez le mot de passe',
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _confirmVisible
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
-                              color: SauveColors.gris,
-                              size: 20,
-                            ),
-                            onPressed: () => setState(
-                                () => _confirmVisible = !_confirmVisible),
-                          ),
-                        ),
-                        validator: (v) {
-                          if (v != _mdpCtrl.text) {
-                            return 'Les mots de passe ne correspondent pas.';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Message d'erreur
-                      if (_erreur != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFEF2F2),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                                color: const Color(0xFFFCA5A5)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.error_outline,
-                                  color: SauveColors.rouge, size: 18),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  _erreur!,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 13,
-                                    color: SauveColors.rouge,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-
-                      // Bouton
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _loading ? null : _reinitialiser,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: SauveColors.rouge,
-                            foregroundColor: Colors.white,
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 17),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: _loading
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : Text(
-                                  'Réinitialiser le mot de passe',
-                                  style: GoogleFonts.archivo(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              if (_etape == _EtapeReset.email) _buildEtapeEmail(),
+              if (_etape == _EtapeReset.code) _buildEtapeCode(),
+              if (_etape == _EtapeReset.succes) _buildSucces(context),
 
               const SizedBox(height: 40),
             ],
@@ -307,7 +223,365 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     );
   }
 
-  Widget _buildSuccesCard(BuildContext context) {
+  Widget _buildEnTete() {
+    return Row(
+      children: [
+        Image.asset(
+          'assets/images/logo_songre.png',
+          height: 40,
+          errorBuilder: (_, __, ___) => const Icon(
+            Icons.favorite,
+            color: SauveColors.rouge,
+            size: 40,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          'SONGRE',
+          style: GoogleFonts.archivo(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: SauveColors.encre,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Étape A — saisie email ──────────────────────────────────────────
+
+  Widget _buildEtapeEmail() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Réinitialiser le mot de passe',
+          style: GoogleFonts.archivo(
+            fontSize: 26,
+            fontWeight: FontWeight.w800,
+            color: SauveColors.encre,
+            height: 1.2,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Saisissez votre adresse email. Nous vous enverrons un code à 6 chiffres pour réinitialiser votre mot de passe.',
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            color: SauveColors.gris,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 32),
+
+        Form(
+          key: _emailFormKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _label('Adresse email'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                autofillHints: const [AutofillHints.email],
+                style: GoogleFonts.inter(fontSize: 14.5),
+                decoration: _inputDeco(
+                  hint: 'votre@email.com',
+                  prefixIcon: const Icon(
+                    Icons.email_outlined,
+                    size: 20,
+                    color: SauveColors.gris,
+                  ),
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Email requis.';
+                  if (!v.contains('@') || !v.contains('.')) {
+                    return 'Email invalide.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 20),
+
+              if (_erreurEmail != null) ...[
+                _buildErreur(_erreurEmail!),
+                const SizedBox(height: 16),
+              ],
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _loadingEmail ? null : _envoyerCode,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: SauveColors.rouge,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 17),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: _loadingEmail
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          'Envoyer le code',
+                          style: GoogleFonts.archivo(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: GestureDetector(
+                  onTap: () => context.go('/'),
+                  child: Text(
+                    'Retour à la connexion',
+                    style: GoogleFonts.inter(
+                      fontSize: 13.5,
+                      color: SauveColors.gris,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Étape B — saisie code + nouveau mot de passe ────────────────────
+
+  Widget _buildEtapeCode() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Entrez votre code',
+          style: GoogleFonts.archivo(
+            fontSize: 26,
+            fontWeight: FontWeight.w800,
+            color: SauveColors.encre,
+            height: 1.2,
+          ),
+        ),
+        const SizedBox(height: 10),
+        RichText(
+          text: TextSpan(
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              color: SauveColors.gris,
+              height: 1.5,
+            ),
+            children: [
+              const TextSpan(
+                text: 'Un code à 6 chiffres a été envoyé à ',
+              ),
+              TextSpan(
+                text: _emailCtrl.text.trim(),
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: SauveColors.encre,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const TextSpan(
+                text: '. Vérifiez votre boîte mail (et les spams).',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 32),
+
+        Form(
+          key: _codeFormKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Code OTP ────────────────────────────────────────────
+              _label('Code de vérification'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _codeCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(6),
+                ],
+                textAlign: TextAlign.center,
+                style: GoogleFonts.archivo(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 12,
+                  color: SauveColors.encre,
+                ),
+                decoration: _inputDeco(
+                  hint: '------',
+                ).copyWith(
+                  hintStyle: GoogleFonts.archivo(
+                    fontSize: 28,
+                    letterSpacing: 12,
+                    color: SauveColors.gris.withValues(alpha: 0.4),
+                  ),
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().length != 6) {
+                    return 'Le code doit contenir exactement 6 chiffres.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 8),
+              Center(
+                child: GestureDetector(
+                  onTap: _renvoyerCode,
+                  child: Text(
+                    'Renvoyer un code',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: SauveColors.rouge,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // ── Nouveau mot de passe ─────────────────────────────────
+              _label('Nouveau mot de passe'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _mdpCtrl,
+                obscureText: !_mdpVisible,
+                style: GoogleFonts.inter(fontSize: 14.5),
+                decoration: _inputDeco(
+                  hint: 'Au moins 8 caractères',
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _mdpVisible
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: SauveColors.gris,
+                      size: 20,
+                    ),
+                    onPressed: () =>
+                        setState(() => _mdpVisible = !_mdpVisible),
+                  ),
+                ),
+                validator: (v) {
+                  if (v == null || v.isEmpty) {
+                    return 'Le mot de passe est requis.';
+                  }
+                  if (v.length < 8) {
+                    return 'Minimum 8 caractères.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 18),
+
+              // ── Confirmation ─────────────────────────────────────────
+              _label('Confirmer le mot de passe'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _confirmCtrl,
+                obscureText: !_confirmVisible,
+                style: GoogleFonts.inter(fontSize: 14.5),
+                decoration: _inputDeco(
+                  hint: 'Répétez le mot de passe',
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _confirmVisible
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: SauveColors.gris,
+                      size: 20,
+                    ),
+                    onPressed: () =>
+                        setState(() => _confirmVisible = !_confirmVisible),
+                  ),
+                ),
+                validator: (v) {
+                  if (v != _mdpCtrl.text) {
+                    return 'Les mots de passe ne correspondent pas.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 24),
+
+              if (_erreurCode != null) ...[
+                _buildErreur(_erreurCode!),
+                const SizedBox(height: 16),
+              ],
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _loadingCode ? null : _verifierEtChanger,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: SauveColors.rouge,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 17),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: _loadingCode
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          'Réinitialiser le mot de passe',
+                          style: GoogleFonts.archivo(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: GestureDetector(
+                  onTap: () => setState(() {
+                    _etape = _EtapeReset.email;
+                    _erreurCode = null;
+                  }),
+                  child: Text(
+                    'Changer l\'adresse email',
+                    style: GoogleFonts.inter(
+                      fontSize: 13.5,
+                      color: SauveColors.gris,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Succès ─────────────────────────────────────────────────────────
+
+  Widget _buildSucces(BuildContext context) {
     return Column(
       children: [
         const SizedBox(height: 20),
@@ -376,71 +650,32 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     );
   }
 
-  Widget _buildTokenInvalide(BuildContext context) {
-    return Column(
-      children: [
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFEF2F2),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFFCA5A5)),
-          ),
-          child: Column(
-            children: [
-              const Icon(
-                Icons.link_off_outlined,
-                color: SauveColors.rouge,
-                size: 48,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Lien invalide ou expiré',
-                style: GoogleFonts.archivo(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: SauveColors.rouge,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Ce lien de réinitialisation est invalide ou a expiré (valide 1 heure). '
-                'Retournez sur l\'application et demandez un nouveau lien.',
-                style: GoogleFonts.inter(
-                  fontSize: 13.5,
-                  color: SauveColors.rouge,
-                  height: 1.5,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 28),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: () => context.go('/'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: SauveColors.rouge,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 17),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
+  // ── Helpers UI ──────────────────────────────────────────────────────
+
+  Widget _buildErreur(String message) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFCA5A5)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline,
+              color: SauveColors.rouge, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
             child: Text(
-              'Retourner à l\'accueil',
-              style: GoogleFonts.archivo(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
+              message,
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: SauveColors.rouge,
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -457,11 +692,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   InputDecoration _inputDeco({
     required String hint,
+    Widget? prefixIcon,
     Widget? suffixIcon,
   }) {
     return InputDecoration(
       hintText: hint,
       hintStyle: GoogleFonts.inter(fontSize: 14, color: SauveColors.gris),
+      prefixIcon: prefixIcon,
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: SauveColors.carte,

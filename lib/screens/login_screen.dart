@@ -1203,11 +1203,11 @@ class _MdpOublieForm extends StatefulWidget {
   State<_MdpOublieForm> createState() => _MdpOublieFormState();
 }
 
+
 class _MdpOublieFormState extends State<_MdpOublieForm> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   bool _loading = false;
-  bool _emailEnvoye = false;
 
   @override
   void dispose() {
@@ -1228,73 +1228,10 @@ class _MdpOublieFormState extends State<_MdpOublieForm> {
             _buildHeader('Mot de passe oublié', widget.onRetour),
             const SizedBox(height: 8),
 
-            if (_emailEnvoye) ...[
-              // ── Confirmation envoi ───────────────────────────────
-              const SizedBox(height: 32),
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: SauveColors.vertFond,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: SauveColors.vert.withValues(alpha: 0.4)),
-                ),
-                child: Column(
-                  children: [
-                    const Icon(
-                      Icons.mark_email_read_outlined,
-                      color: SauveColors.vert,
-                      size: 44,
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      'Email envoyé !',
-                      style: GoogleFonts.archivo(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: SauveColors.vert,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Un lien de réinitialisation a été envoyé à :\n${_emailCtrl.text.trim()}\n\nVérifiez votre boîte mail (y compris les spams). '
-                      'Le lien est valide pendant 1 heure.',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.inter(
-                        fontSize: 13.5,
-                        color: const Color(0xFF2e7d5f),
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: widget.onRetour,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: SauveColors.encre,
-                    side: const BorderSide(color: SauveColors.grisClair, width: 1.5),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: Text(
-                    'Retour à la connexion',
-                    style: GoogleFonts.archivo(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: SauveColors.encre,
-                    ),
-                  ),
-                ),
-              ),
-            ] else ...[
+            ...[
               // ── Formulaire saisie email ──────────────────────────
               Text(
-                'Saisissez votre adresse email. Nous vous enverrons un lien pour réinitialiser votre mot de passe.',
+                'Saisissez votre adresse email. Nous vous enverrons un code à 6 chiffres pour réinitialiser votre mot de passe.',
                 style: GoogleFonts.inter(
                   fontSize: 13,
                   color: SauveColors.gris,
@@ -1350,7 +1287,7 @@ class _MdpOublieFormState extends State<_MdpOublieForm> {
                           ),
                         )
                       : Text(
-                          'Envoyer le lien',
+                          'Envoyer le code',
                           style: GoogleFonts.archivo(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
@@ -1384,17 +1321,16 @@ class _MdpOublieFormState extends State<_MdpOublieForm> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
 
-    final result = await SupabaseService.envoyerEmailReinitialisation(
-      _emailCtrl.text.trim(),
-    );
+    final email = _emailCtrl.text.trim();
+    final result = await SupabaseService.envoyerEmailReinitialisation(email);
 
     if (!mounted) return;
     setState(() => _loading = false);
 
     if (result.success) {
-      // Supabase retourne 200 même si l'email n'existe pas → toujours afficher
-      // le message de succès pour ne pas révéler si un email est inscrit
-      setState(() => _emailEnvoye = true);
+      // Supabase retourne 200 même si l'email n'existe pas (sécurité anti-enum).
+      // On redirige toujours vers l'écran de saisie du code OTP.
+      context.push('/reset-password', extra: email);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

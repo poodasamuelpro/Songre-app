@@ -626,20 +626,20 @@ class _MdpOublieFormState extends State<_MdpOublieForm> {
       _erreur = null;
     });
 
-    final result = await SupabaseService.reinitialiserMotDePasse(
-      email: _emailCtrl.text.trim().toLowerCase(),
+    final result = await SupabaseService.envoyerEmailReinitialisation(
+      _emailCtrl.text.trim().toLowerCase(),
     );
 
     if (!mounted) return;
 
-    if (result) {
+    if (result.success) {
       setState(() {
         _envoye = true;
         _loading = false;
       });
     } else {
       setState(() {
-        _erreur = 'Impossible d\'envoyer l\'email. Vérifiez l\'adresse saisie.';
+        _erreur = result.error ?? 'Impossible d\'envoyer l\'email. Vérifiez l\'adresse saisie.';
         _loading = false;
       });
     }

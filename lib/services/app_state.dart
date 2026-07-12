@@ -126,7 +126,17 @@ class AppState extends ChangeNotifier {
         unawaited(NotificationService.initialiser(_userId!));
         return;
       } else {
-        await _purgerSessionLocale();
+        // Session invalide : purger. try/catch car supprimerSession() peut lever
+        // une PlatformException (Keystore Android). Le _setLoading(false) suivant
+        // garantit la sortie de l'état bloquant même en cas d'exception.
+        try {
+          await _purgerSessionLocale();
+        } catch (e) {
+          if (kDebugMode) debugPrint('[AppState] init() _purgerSessionLocale error: $e');
+          _isLoading = false;
+          notifyListeners();
+          return;
+        }
       }
     }
     _setLoading(false);
@@ -331,11 +341,28 @@ class AppState extends ChangeNotifier {
     // Sans ce guard, un notifyListeners() background (ex: _rafraichirDonneesBackground)
     // peut évaluer le redirect avec isAuth=true + profil=null → boucle /completer-profil.
     _setLoading(true);
-    await SupabaseService.deconnecter();
-    await _purgerSessionLocale();
-    // _purgerSessionLocale() appelle notifyListeners() en fin avec isAuth=false,
-    // profil=null, isLoading=false (via _setLoading(false) dans finally non nécessaire
-    // car _purgerSessionLocale réinitialise tout directement).
+    try {
+      await SupabaseService.deconnecter();
+    } catch (e) {
+      // Erreur réseau non bloquante : la session locale doit être purgée
+      // même si le serveur Supabase est inaccessible.
+      if (kDebugMode) debugPrint('[AppState] seDeconnecter() erreur réseau: $e');
+    }
+    try {
+      await _purgerSessionLocale();
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AppState] _purgerSessionLocale() erreur: $e');
+    } finally {
+      // Filet de sécurité absolu : garantit la sortie de l'état bloquant
+      // même si _purgerSessionLocale() a levé une exception avant d'atteindre
+      // son propre notifyListeners(). Sans ce finally, isLoading resterait
+      // bloqué à true et gèlerait toute la navigation (guard router.dart).
+      _userId = null;
+      _profil = null;
+      _isAuthenticated = false;
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> _purgerSessionLocale() async {

@@ -32,43 +32,15 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
-            <!-- [Fix #1a] Deep linking — schéma personnalisé songre://
-                 Intercepte les liens de réinitialisation de mot de passe :
-                 songre://reset-password?access_token=xxx&type=recovery
-                 Supabase redirige vers ce schéma depuis l'email de reset. -->
-            <intent-filter android:autoVerify="false">
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="songre"/>
-            </intent-filter>
-
-            <!-- Deep linking HTTPS — https://songre.vercel.app/reset-password
-                 Fallback web : si l'app n'est pas installée, le navigateur
-                 ouvre la page Vercel. Si elle est installée, Android propose
-                 d'ouvrir l'application. -->
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data
-                    android:scheme="https"
-                    android:host="songre.vercel.app"
-                    android:pathPrefix="/reset-password"/>
-            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <!-- [P5] Active la transmission des deep links au moteur Flutter / GoRouter.
-             Sans cette meta-data, l'URI reçue via un Intent ACTION_VIEW (ex: lien email
-             reset-password) est ignorée et l'app démarre sur la route initiale au lieu
-             de la route correspondant au lien. Requis pour go_router >= 6.0. -->
-        <meta-data
-            android:name="flutter.deeplinking.enabled"
-            android:value="true" />
+        <!-- flutter_deeplinking_enabled retiré : aucun deep link utilisé dans l'app.
+             Le flux de réinitialisation de mot de passe est entièrement par OTP
+             (code à 6 chiffres saisi dans l'app), sans intent-filter ni lien cliquable. -->
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -82,6 +54,7 @@
         </intent>
     </queries>
 </manifest>
+
 
 
 

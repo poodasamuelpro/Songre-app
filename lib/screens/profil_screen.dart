@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/sauve_theme.dart';
@@ -1102,8 +1103,16 @@ class ProfilScreen extends StatelessWidget {
               icon: Icons.logout,
               label: 'Se déconnecter',
               onTap: () async {
+                // Fermer le bottom sheet avant la déconnexion
                 Navigator.pop(ctx);
+                // Purger la session (try/catch + finally dans AppState)
                 await state.seDeconnecter();
+                // Navigation explicite vers / : GoRouter refreshListenable peut
+                // omettre la redirection quand on est dans un ShellRoute car il
+                // réévalue de façon asynchrone. context.go('/') garantit la
+                // navigation même si le guard GoRouter ne se déclenche pas.
+                // ignore: use_build_context_synchronously
+                if (context.mounted) context.go('/');
               },
               color: SauveColors.rouge,
             ),
