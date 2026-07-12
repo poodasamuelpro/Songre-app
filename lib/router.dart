@@ -31,6 +31,7 @@ GoRouter buildRouter(AppState appState) {
     redirect: (ctx, state) {
       final isAuth = appState.isAuthenticated;
       final hasProfil = appState.profil != null;
+      final isLoading = appState.isLoading;
       final location = state.matchedLocation;
       final isLogin = location == '/';
       final isCompleteProfil = location == '/completer-profil';
@@ -43,16 +44,26 @@ GoRouter buildRouter(AppState appState) {
       // reset-password : toujours accessible — aucune redirection
       if (isResetPassword) return null;
 
+      // Guard de transition : pendant le chargement initial ou la déconnexion,
+      // ne pas évaluer les règles de navigation pour éviter les redirections
+      // vers /completer-profil alors que l'état est en cours de purge.
+      // La règle !isLogin est critique ici : sans elle, un utilisateur
+      // en cours de déconnexion (isAuth=true transitoire, profil=null) est
+      // redirigé vers /completer-profil plutôt que vers / (login).
+      if (isLoading) return null;
+
       // Non authentifié → toujours login
       if (!isAuth && !isLogin) return '/';
 
       // Authentifié + profil → quitte login vers home
       if (isAuth && hasProfil && isLogin) return '/home';
 
-      // Authentifié SANS profil → forcer la création du profil
-      // Note : !isLogin retiré intentionnellement — cf. fix P1.
-      // Sans ce retrait, un utilisateur authentifié sans profil restait bloqué
-      // sur '/' car aucune règle ne matchait (isLogin=true rendait cette règle inerte).
+      // Authentifié SANS profil → forcer la création du profil.
+      // Couvre DEUX cas :
+      //   1. Authentifié sur '/' (login) sans profil → /completer-profil
+      //      (règle distincte de la règle "quitte login" qui exige hasProfil)
+      //   2. Authentifié sur n'importe quelle autre route sans profil → /completer-profil
+      // !isCompleteProfil évite la boucle redirect infinie sur /completer-profil.
       if (isAuth && !hasProfil && !isCompleteProfil) {
         return '/completer-profil';
       }

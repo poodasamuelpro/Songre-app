@@ -305,7 +305,14 @@ class SupabaseService {
       final resp = await http.post(
         Uri.parse('$_supabaseUrl/auth/v1/recover'),
         headers: _headers(),
-        body: jsonEncode({'email': email}),
+        body: jsonEncode({
+          'email': email,
+          // redirectTo : deep link intercept par Android (intent-filter scheme songre://)
+          // → GoRouter route vers /reset-password?access_token=...&type=recovery
+          // Doit être whitelisté dans Supabase Dashboard →
+          // Authentication → URL Configuration → Redirect URLs.
+          'redirectTo': 'songre://reset-password',
+        }),
       ).timeout(const Duration(seconds: 15));
 
       // Supabase retourne 200 même si l'email n'existe pas (sécurité)

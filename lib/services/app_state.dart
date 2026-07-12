@@ -326,8 +326,16 @@ class AppState extends ChangeNotifier {
   // DÉCONNEXION — Invalide le JWT côté Supabase + purge locale
   // =====================================================================
   Future<void> seDeconnecter() async {
+    // Activer le loading pendant la déconnexion pour bloquer les redirects
+    // GoRouter intermédiaires (isLoading guard dans router.dart).
+    // Sans ce guard, un notifyListeners() background (ex: _rafraichirDonneesBackground)
+    // peut évaluer le redirect avec isAuth=true + profil=null → boucle /completer-profil.
+    _setLoading(true);
     await SupabaseService.deconnecter();
     await _purgerSessionLocale();
+    // _purgerSessionLocale() appelle notifyListeners() en fin avec isAuth=false,
+    // profil=null, isLoading=false (via _setLoading(false) dans finally non nécessaire
+    // car _purgerSessionLocale réinitialise tout directement).
   }
 
   Future<void> _purgerSessionLocale() async {
@@ -341,6 +349,7 @@ class AppState extends ChangeNotifier {
     _emailCourant = null; // Effacer l'email mémorisé à la déconnexion (S4)
     _profil = null;
     _isAuthenticated = false;
+    _isLoading = false; // Libérer le guard de transition (déconnexion + init)
     _suppressionProgrammee = false;
     _dateSuppression = null;
     _demandes = [];
