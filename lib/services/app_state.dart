@@ -235,18 +235,14 @@ class AppState extends ChangeNotifier {
       return false;
     }
 
-    if (result.needsEmailConfirmation) {
-      _authError = null;
-      _setLoading(false);
-      return true;
-    }
-
     if (result.userId != null && result.accessToken != null) {
+      // Cas nominal : Supabase a retourné une session immédiate.
       // On mémorise l'userId pour que sauvegarderProfil() puisse écrire en DB.
       // On NE met PAS _isAuthenticated=true ici — c'est sauvegarderProfil()
       // qui le fera après création du profil, évitant que GoRouter redirige
       // vers /completer-profil AVANT que l'utilisateur ait soumis le formulaire.
       _userId = result.userId;
+      _emailCourant = email;
       await SecureStorageService.sauvegarderSession(
         userId: _userId!,
         accessToken: result.accessToken!,
@@ -255,9 +251,76 @@ class AppState extends ChangeNotifier {
       );
       // NE PAS appeler notifyListeners() ici — on n'est pas encore authentifié
       // du point de vue de l'application (le profil n'est pas encore créé).
+      _setLoading(false);
+      return true;
     }
 
+    // Cas sans session immédiate : Supabase n'a pas retourné de userId/token.
+    // Cela peut survenir quand needsEmailConfirmation == true (confirmation email
+    // activée sur le projet Supabase) OU lors d'un état transitoire serveur.
+    //
+    // Solution : tentative de reconnexion automatique silencieuse.
+    // Si elle réussit, l'utilisateur poursuit directement vers le formulaire de
+    // profil sans aucun message visible. Si la confirmation email est réellement
+    // requise, la connexion échouera avec un message clair (traduit par
+    // _traduireErreurConnexion dans SupabaseService).
+    if (kDebugMode) {
+      debugPrint('[AppState] inscrire() — pas de session immédiate, tentative de reconnexion silencieuse...');
+    }
+
+    // Appel interne à connecter() : réutilise toute la logique existante.
+    // Note : connecter() gère ses propres _setLoading() calls — on remet
+    // _setLoading(true) avant pour couvrir l'intervalle entre les deux appels.
+    _setLoading(true);
+    final reconnecte = await _connecterInterne(email: email, motDePasse: motDePasse);
+
+    if (!reconnecte) {
+      // La reconnexion a échoué. _authError a été défini par connecter().
+      // Si l'erreur contient "email not confirmed", c'est un cas légitime :
+      // l'utilisateur voit le message clair existant plutôt que "session expirée".
+      // Dans tous les cas, on retourne false → l'écran d'inscription affiche l'erreur.
+      _setLoading(false);
+      return false;
+    }
+
+    // Reconnexion réussie : _userId, _emailCourant et la session sont définis
+    // par connecter(). Mais connecter() met _isAuthenticated=true et charge les
+    // données — ce qu'on ne veut PAS ici (le profil n'existe pas encore).
+    // On remet _isAuthenticated=false pour que GoRouter ne redirige pas prématurément.
+    _isAuthenticated = false;
     _setLoading(false);
+    return true;
+  }
+
+  // =====================================================================
+  // RECONNEXION INTERNE — utilisée par inscrire() uniquement
+  // Appelle connecter() mais sans déclencher le chargement des données métier
+  // car le profil n'a pas encore été créé au moment de l'inscription.
+  // =====================================================================
+  Future<bool> _connecterInterne({
+    required String email,
+    required String motDePasse,
+  }) async {
+    final result = await SupabaseService.connecter(
+      email: email,
+      motDePasse: motDePasse,
+    );
+
+    if (!result.success) {
+      _authError = result.error;
+      return false;
+    }
+
+    _userId = result.userId;
+    _emailCourant = email;
+    await SecureStorageService.sauvegarderSession(
+      userId: _userId!,
+      accessToken: result.accessToken!,
+      refreshToken: SupabaseService.refreshTokenCourant ?? '',
+      authType: 'email',
+    );
+    // Pas de _isAuthenticated=true ici — géré par l'appelant.
+    // Pas de chargement de données — le profil n'existe pas encore.
     return true;
   }
 

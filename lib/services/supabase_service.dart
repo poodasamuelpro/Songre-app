@@ -1088,6 +1088,76 @@ class SupabaseService {
   }
 
   // =====================================================================
+  // CONTACTS DONNEURS — Lecture du téléphone pour le demandeur
+  // =====================================================================
+
+  /// Retourne la liste des téléphones (déchiffrés) des donneurs ayant répondu
+  /// à la demande [demandeId], à destination exclusive de l'auteur de cette demande.
+  ///
+  /// Chaque entrée : { 'donneurId': String, 'telephone': String? }
+  /// - 'telephone' est null si le donneur n'a pas renseigné de numéro.
+  ///
+  /// Sécurité : Supabase RLS restreint la lecture de reponses_donneurs et de
+  /// profils_donneurs. Côté client, on ne fait cette requête que si
+  /// demande.auteurId == userId courant (vérification dans _DetailDemandeScreenState).
+  static Future<List<Map<String, String?>>> lireContactsDonneurs(
+    String demandeId,
+  ) async {
+    if (!estConfigured || _accessToken == null) return [];
+    try {
+      // 1. Lire les donneurIds ayant répondu à cette demande
+      final urlReponses = Uri.parse(
+        '$_supabaseUrl/rest/v1/reponses_donneurs'
+        '?demande_id=eq.$demandeId'
+        '&select=donneur_id',
+      );
+      final resp1 = await _requeteAvecRefresh(
+        () => http.get(urlReponses, headers: _restHeaders(withAuth: true))
+            .timeout(const Duration(seconds: 10)),
+      );
+      if (resp1.statusCode != 200) return [];
+      final reponses = jsonDecode(resp1.body) as List;
+      if (reponses.isEmpty) return [];
+
+      final donneurIds =
+          reponses.map((r) => r['donneur_id'] as String).toList();
+
+      // 2. Pour chaque donneur, lire telephone_chiffre depuis profils_donneurs.
+      //    On filtre avec user_id=in.(...) si l'API PostgREST le supporte.
+      final idsParam = donneurIds.map((id) => id).join(',');
+      final urlProfils = Uri.parse(
+        '$_supabaseUrl/rest/v1/profils_donneurs'
+        '?user_id=in.($idsParam)'
+        '&select=user_id,telephone_chiffre',
+      );
+      final resp2 = await _requeteAvecRefresh(
+        () => http.get(urlProfils, headers: _restHeaders(withAuth: true))
+            .timeout(const Duration(seconds: 10)),
+      );
+      if (resp2.statusCode != 200) return [];
+      final profils = jsonDecode(resp2.body) as List;
+
+      // 3. Déchiffrer le téléphone pour chaque profil
+      return profils.map((p) {
+        final telChiffre = p['telephone_chiffre'] as String?;
+        String? telClair;
+        if (telChiffre != null && telChiffre.isNotEmpty) {
+          telClair = CryptoService.dechiffrer(telChiffre);
+        }
+        return {
+          'donneurId': p['user_id'] as String?,
+          'telephone': telClair,
+        };
+      }).toList();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] lireContactsDonneurs error: $e');
+      }
+      return [];
+    }
+  }
+
+  // =====================================================================
   // RÉPONSE DONNEUR — Persistance en base
   // =====================================================================
   static Future<bool> enregistrerReponseDonneur({

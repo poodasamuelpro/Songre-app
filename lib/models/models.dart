@@ -194,6 +194,10 @@ class ProfilDonneur {
   final String? quartier;
   /// Contre-indications en clair — chiffrées avant envoi en base.
   final List<String> contreIndications;
+  /// Numéro de téléphone en clair — optionnel.
+  /// Jamais envoyé en base tel quel ; chiffré AES-256 avant envoi (telephone_chiffre).
+  /// Visible uniquement par le demandeur dont la demande a été confirmée.
+  final String? telephone;
   final DateTime? dernierDonDate;
   final bool disponible;
   final DateTime createdAt;
@@ -208,6 +212,7 @@ class ProfilDonneur {
     required this.villeNom,
     this.quartier,
     this.contreIndications = const [],
+    this.telephone,
     this.dernierDonDate,
     this.disponible = true,
     required this.createdAt,
@@ -247,6 +252,9 @@ class ProfilDonneur {
     String? villeNom,
     String? quartier,
     List<String>? contreIndications,
+    String? telephone,
+    /// Passage explicite de null pour effacer le téléphone
+    bool effacerTelephone = false,
     DateTime? dernierDonDate,
     bool? disponible,
   }) {
@@ -259,6 +267,7 @@ class ProfilDonneur {
       villeNom: villeNom ?? this.villeNom,
       quartier: quartier ?? this.quartier,
       contreIndications: contreIndications ?? this.contreIndications,
+      telephone: effacerTelephone ? null : (telephone ?? this.telephone),
       dernierDonDate: dernierDonDate ?? this.dernierDonDate,
       disponible: disponible ?? this.disponible,
       createdAt: createdAt,
@@ -266,13 +275,14 @@ class ProfilDonneur {
     );
   }
 
-  /// Sérialisation pour envoi en base — chiffre poids et contre-indications.
+  /// Sérialisation pour envoi en base — chiffre poids, CI et téléphone.
   /// NE PAS inclure ville_nom (pas de colonne en base).
   Map<String, dynamic> toJsonPourBase() {
     final poidsChiffre = CryptoService.chiffrer(poids.toString());
     final ciChiffre = CryptoService.chiffrerListe(
       contreIndications.isEmpty ? null : contreIndications,
     );
+    final telChiffre = CryptoService.chiffrer(telephone);
     return {
       'user_id': userId,
       'groupe_sanguin': groupeSanguin.label,
@@ -281,6 +291,7 @@ class ProfilDonneur {
       'ville_id': villeId,
       'quartier': quartier,
       'contre_indications_chiffre': ciChiffre,
+      'telephone_chiffre': telChiffre,
       'dernier_don_date':
           dernierDonDate?.toIso8601String().substring(0, 10),
       'disponible': disponible,
@@ -297,6 +308,7 @@ class ProfilDonneur {
         'ville_nom': villeNom,
         'quartier': quartier,
         'contre_indications': contreIndications,
+        'telephone': telephone,
         'dernier_don_date': dernierDonDate?.toIso8601String(),
         'disponible': disponible,
         'created_at': createdAt.toIso8601String(),
@@ -317,6 +329,7 @@ class ProfilDonneur {
         quartier: json['quartier'] as String?,
         contreIndications:
             List<String>.from(json['contre_indications'] as List? ?? []),
+        telephone: json['telephone'] as String?,
         dernierDonDate: json['dernier_don_date'] != null
             ? DateTime.tryParse(json['dernier_don_date'] as String)
             : null,
@@ -355,6 +368,13 @@ class ProfilDonneur {
       }
     }
 
+    // Déchiffrer le téléphone (optionnel — null si absent ou non renseigné)
+    String? telEnClair;
+    final telChiffre = json['telephone_chiffre'] as String?;
+    if (telChiffre != null && telChiffre.isNotEmpty) {
+      telEnClair = CryptoService.dechiffrer(telChiffre);
+    }
+
     return ProfilDonneur(
       userId: json['user_id'] as String,
       groupeSanguin:
@@ -368,6 +388,7 @@ class ProfilDonneur {
       villeNom: villeNom,
       quartier: json['quartier'] as String?,
       contreIndications: ciEnClair,
+      telephone: telEnClair,
       dernierDonDate: json['dernier_don_date'] != null
           ? DateTime.tryParse(json['dernier_don_date'] as String)
           : null,

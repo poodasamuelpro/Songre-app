@@ -124,7 +124,7 @@ class ProfilScreen extends StatelessWidget {
                     const SizedBox(height: 8),
 
                     // Infos profil
-                    _buildInfosSection(profil),
+                    _buildInfosSection(profil, state.emailCourant),
                     const SizedBox(height: 8),
 
                     // Bouton j'ai fait un don
@@ -386,7 +386,7 @@ class ProfilScreen extends StatelessWidget {
 
   // ── Informations profil ───────────────────────────────────────────
 
-  Widget _buildInfosSection(ProfilDonneur profil) {
+  Widget _buildInfosSection(ProfilDonneur profil, String? emailCourant) {
     final dernierDon = profil.dernierDonDate != null
         ? _formatDate(profil.dernierDonDate!)
         : 'Aucun don enregistré';
@@ -396,6 +396,9 @@ class ProfilScreen extends StatelessWidget {
 
     return Column(
       children: [
+        // [P3] Email du compte — lecture seule, depuis AppState (aucun appel réseau)
+        if (emailCourant != null && emailCourant.isNotEmpty)
+          _buildInfoRow('Email du compte', emailCourant),
         _buildInfoRow('Groupe sanguin', profil.groupeSanguin.label),
         _buildInfoRow('Poids', '${profil.poids} kg'),
         _buildInfoRow(
@@ -645,6 +648,7 @@ class ProfilScreen extends StatelessWidget {
     final villeCtrl = TextEditingController(text: profil.villeNom);
     final quartierCtrl = TextEditingController(text: profil.quartier ?? '');
     final poidsCtrl = TextEditingController(text: profil.poids.toString());
+    final telephoneCtrl = TextEditingController(text: profil.telephone ?? '');
     GroupeSanguin selectedGroupe = profil.groupeSanguin;
     Genre selectedGenre = profil.genre;
     bool saving = false;
@@ -853,6 +857,31 @@ class ProfilScreen extends StatelessWidget {
                     controller: quartierCtrl,
                     hint: 'Ex : Pissy',
                   ),
+                  const SizedBox(height: 18),
+
+                  // ── Téléphone (optionnel) ─────────────────────────
+                  Text(
+                    'Numéro de téléphone (optionnel)',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: SauveColors.gris,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Visible uniquement par le demandeur après votre réponse confirmée.',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: SauveColors.gris,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _editField(
+                    controller: telephoneCtrl,
+                    hint: 'Ex : +226 70 00 00 00',
+                    keyboardType: TextInputType.phone,
+                  ),
                   const SizedBox(height: 26),
 
                   // ── Bouton Enregistrer ────────────────────────────
@@ -900,6 +929,7 @@ class ProfilScreen extends StatelessWidget {
 
                               setSt(() => saving = true);
 
+                              final telSaisi = telephoneCtrl.text.trim();
                               final updated = profil.copyWith(
                                 groupeSanguin: selectedGroupe,
                                 genre: selectedGenre,
@@ -908,6 +938,8 @@ class ProfilScreen extends StatelessWidget {
                                 quartier: quartierCtrl.text.trim().isEmpty
                                     ? null
                                     : quartierCtrl.text.trim(),
+                                telephone: telSaisi.isEmpty ? null : telSaisi,
+                                effacerTelephone: telSaisi.isEmpty,
                               );
                               await state.sauvegarderProfil(updated);
 

@@ -29,6 +29,11 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
   bool _repondu = false;
   bool _contactLoading = true;
 
+  // [P2] Contacts téléphone des donneurs ayant répondu — visible uniquement
+  // par l'auteur de la demande, après réponse confirmée (chargé en asynchrone).
+  List<Map<String, String?>> _contactsDonneurs = [];
+  bool _contactsDonneursLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -39,6 +44,7 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
   /// [1.5] Interroge la vue demandes_sang_avec_contact pour savoir si
   /// l'utilisateur courant a déjà répondu. Seul le serveur fait foi.
   Future<void> _chargerEtatRepondu() async {
+    final state = context.read<AppState>();
     final aRepondu = await SupabaseService.verifierReponduDemande(
       widget.demande.id,
     );
@@ -46,6 +52,25 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
     setState(() {
       _repondu = aRepondu;
       _contactLoading = false;
+    });
+
+    // [P2] Si l'utilisateur est l'auteur de la demande, charger les contacts donneurs.
+    if (state.userId == widget.demande.auteurId) {
+      _chargerContactsDonneurs();
+    }
+  }
+
+  /// [P2] Charge les téléphones chiffrés des donneurs ayant répondu,
+  /// puis les déchiffre. Accessible uniquement à l'auteur de la demande.
+  Future<void> _chargerContactsDonneurs() async {
+    setState(() => _contactsDonneursLoading = true);
+    final contacts = await SupabaseService.lireContactsDonneurs(
+      widget.demande.id,
+    );
+    if (!mounted) return;
+    setState(() {
+      _contactsDonneurs = contacts;
+      _contactsDonneursLoading = false;
     });
   }
 
@@ -212,6 +237,8 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
   }
 
   Widget _buildInfos(DemandeSang demande) {
+    final state = context.watch<AppState>();
+    final estAuteur = state.userId == demande.auteurId;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
@@ -228,31 +255,85 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
             value: _expirationLabel(demande.expiresAt),
           ),
           const SizedBox(height: 8),
-          // [1.5] Contact masqué tant que _repondu == false
-          if (_contactLoading)
-            _buildContactLoadingRow()
-          else if (_repondu && demande.contactChiffre != null) ...[
-            _buildInfoRow(
-              icon: Icons.phone_outlined,
-              label: 'Contact principal',
-              value: CryptoService.dechiffrer(demande.contactChiffre) ??
-                  'Contact indisponible',
-            ),
-            if (demande.contactSecondaireChiffre != null) ...[
-              const SizedBox(height: 8),
+          // [1.5] Contact DEMANDEUR masqué tant que _repondu == false (vue donneur)
+          if (!estAuteur) ...[
+            if (_contactLoading)
+              _buildContactLoadingRow()
+            else if (_repondu && demande.contactChiffre != null) ...[
               _buildInfoRow(
-                icon: Icons.phone_callback_outlined,
-                label: 'Contact secondaire',
-                value: CryptoService.dechiffrer(
-                        demande.contactSecondaireChiffre) ??
+                icon: Icons.phone_outlined,
+                label: 'Contact principal',
+                value: CryptoService.dechiffrer(demande.contactChiffre) ??
                     'Contact indisponible',
               ),
-            ],
-          ] else
-            _buildContactVerrouille(),
+              if (demande.contactSecondaireChiffre != null) ...[
+                const SizedBox(height: 8),
+                _buildInfoRow(
+                  icon: Icons.phone_callback_outlined,
+                  label: 'Contact secondaire',
+                  value: CryptoService.dechiffrer(
+                          demande.contactSecondaireChiffre) ??
+                      'Contact indisponible',
+                ),
+              ],
+            ] else
+              _buildContactVerrouille(),
+          ],
+          // [P2] Contacts DONNEURS — visibles uniquement par l'auteur de la demande
+          if (estAuteur) ...[
+            if (_contactsDonneursLoading)
+              _buildContactLoadingRow()
+            else if (_contactsDonneurs.isEmpty)
+              _buildAucunDonneurRow()
+            else
+              ..._buildContactsDonneursRows(),
+          ],
         ],
       ),
     );
+  }
+
+  /// [P2] Ligne affichée quand aucun donneur n'a encore répondu
+  Widget _buildAucunDonneurRow() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: SauveColors.carte,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: SauveColors.grisClair),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.people_outline, size: 18, color: SauveColors.gris),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Aucun donneur n\'a encore répondu à cette demande.',
+              style: GoogleFonts.inter(fontSize: 13, color: SauveColors.gris),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// [P2] Génère les lignes d'affichage des contacts donneurs
+  List<Widget> _buildContactsDonneursRows() {
+    final widgets = <Widget>[];
+    for (int i = 0; i < _contactsDonneurs.length; i++) {
+      if (i > 0) widgets.add(const SizedBox(height: 8));
+      final contact = _contactsDonneurs[i];
+      final tel = contact['telephone'];
+      widgets.add(
+        _buildInfoRow(
+          icon: Icons.volunteer_activism_outlined,
+          label: 'Donneur ${i + 1}',
+          value: tel != null && tel.isNotEmpty ? tel : 'Contact non renseigné',
+        ),
+      );
+    }
+    return widgets;
   }
 
   /// Placeholder pendant le chargement de l'état répondu

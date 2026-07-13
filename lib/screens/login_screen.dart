@@ -755,6 +755,8 @@ class _ProfilFormState extends State<_ProfilForm> {
   bool _villesLoading = true;
   String _quartier = '';
   final List<String> _contreIndications = [];
+  // Téléphone optionnel — chiffré avant envoi en base
+  final TextEditingController _telephoneCtrl = TextEditingController();
   bool _consentement = false;
   bool _loading = false;
 
@@ -826,6 +828,20 @@ class _ProfilFormState extends State<_ProfilForm> {
               decoration: _inputDeco(hint: 'Ex : Secteur 15, Pissy...'),
               style: GoogleFonts.inter(fontSize: 14.5),
               onChanged: (v) => _quartier = v,
+            ),
+            const SizedBox(height: 20),
+            _label('Numéro de téléphone (optionnel)'),
+            const SizedBox(height: 4),
+            Text(
+              'Visible uniquement par le demandeur après votre réponse confirmée.',
+              style: GoogleFonts.inter(fontSize: 12, color: SauveColors.gris),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _telephoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: _inputDeco(hint: 'Ex : +226 70 00 00 00'),
+              style: GoogleFonts.inter(fontSize: 14.5),
             ),
             const SizedBox(height: 20),
             _label('Contre-indications (cochez si applicable)'),
@@ -1155,6 +1171,7 @@ class _ProfilFormState extends State<_ProfilForm> {
       return;
     }
 
+    final tel = _telephoneCtrl.text.trim();
     final profil = ProfilDonneur(
       userId: userId,
       groupeSanguin: _groupe,
@@ -1164,6 +1181,7 @@ class _ProfilFormState extends State<_ProfilForm> {
       villeNom: _villeSelectionnee!.nom,
       quartier: _quartier.isNotEmpty ? _quartier : null,
       contreIndications: _contreIndications,
+      telephone: tel.isNotEmpty ? tel : null,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
