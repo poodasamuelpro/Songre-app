@@ -115,13 +115,9 @@ serve(async (req: Request) => {
       try {
         await envoyerEmailDirect(
           userEmail,
-          // NOTE: "suppression_confirmee" n'est pas dans notifications_envoyees
-          // (fire-and-forget) — on utilise le template suppression_demandee
-          // avec un contenu adapté pour la confirmation définitive.
-          "suppression_demandee", // Réutilise le template avec données adaptées
+          "suppression_confirmee", // Template dédié — jamais persisté (fire-and-forget)
           {
             prenom: userEmail.split("@")[0] ?? "Utilisateur",
-            date_suppression: "Votre compte a été supprimé définitivement.",
           },
         );
         console.log(`[suppressions] Email de confirmation envoyé à ${userEmail}`);

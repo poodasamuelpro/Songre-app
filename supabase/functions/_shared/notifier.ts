@@ -95,6 +95,11 @@ function fcmDefaults(
         titre: "Suppression de compte programmée",
         corps: "Vous pouvez annuler depuis votre profil avant l'échéance.",
       };
+    case "suppression_confirmee":
+      return {
+        titre: "Compte supprimé définitivement",
+        corps: "Toutes vos données ont été effacées, comme demandé.",
+      };
     case "bienvenue":
       return {
         titre: "Bienvenue sur SONGRE !",
@@ -133,6 +138,8 @@ function emailSujet(type: string, templateData: Record<string, string>): string 
       return "[SONGRE] Vous pouvez à nouveau donner votre sang !";
     case "suppression_demandee":
       return "[SONGRE] Demande de suppression de compte reçue";
+    case "suppression_confirmee":
+      return "[SONGRE] Votre compte a été supprimé définitivement";
     case "bienvenue":
       return "[SONGRE] Bienvenue — Complétez votre profil donneur";
     case "mdp_modifie":

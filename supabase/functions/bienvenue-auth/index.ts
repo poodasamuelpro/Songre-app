@@ -78,8 +78,8 @@ serve(async (req: Request) => {
   }
 
   // N'agir que sur les INSERTs dans auth.users
-  if (payload.type !== "INSERT") {
-    return jsonResponse({ skipped: "event non INSERT" }, 200, corsHeaders);
+  if (payload.type !== "INSERT" || payload.table !== "users") {
+    return jsonResponse({ skipped: "event non pertinent" }, 200, corsHeaders);
   }
 
   const newUser = payload.record;

@@ -1,22 +1,3 @@
-// =============================================================================
-// _shared/cors.ts — Module partagé SONGRE : gestion CORS multi-domaine
-//
-// Tous les domaines SONGRE autorisés :
-//   - https://songre.bf        (production principale)
-//   - https://songre.com       (domaine alternatif)
-//   - https://songre.vercel.app (preview Vercel)
-//
-// Usage :
-//   import { getCorsHeaders, jsonResponse, handleCors } from "../_shared/cors.ts";
-//
-//   serve(async (req) => {
-//     const corsHeaders = getCorsHeaders(req);
-//     const preflight = handleCors(req, corsHeaders);
-//     if (preflight) return preflight;
-//     // ... handler
-//   });
-// =============================================================================
-
 const ALLOWED_ORIGINS = [
   "https://songre.bf",
   "https://songre.com",
@@ -30,13 +11,10 @@ export function getCorsHeaders(
 ): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
 
-  // ── Correction S-06 (audit 2026-07-09) ────────────────────────────────────
-  // Ancienne version : retournait ALLOWED_ORIGINS[0] pour toute origine inconnue,
-  // ce qui produisait un header CORS syntaxiquement valide mais sémantiquement
-  // trompeur. Correction : null-string pour les origines non autorisées,
-  // ce qui fait rejeter la requête par le navigateur (comportement CORS attendu).
-  // Note : les EFs Supabase côté mobile n'envoient pas d'Origin → elles passent.
-  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "";
+  // Vérifier si l'origin est dans la liste autorisée
+  const allowOrigin = ALLOWED_ORIGINS.includes(origin)
+    ? origin
+    : ALLOWED_ORIGINS[0]; // Fallback sur le domaine principal
 
   const baseHeaders =
     "authorization, x-client-info, apikey, content-type, " +
