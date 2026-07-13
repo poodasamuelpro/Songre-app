@@ -6,11 +6,12 @@
 import '../utils/crypto_service.dart';
 
 // ── Durée de validité des demandes de sang (§2.5.6 — correction R-05)
-// ── Correction audit 2026-07-09 : alignement sur le cahier des charges → 72h.
+// ── Correction audit 2026-07-13 : passage de 72h à 7 jours (168h).
 // ── Le DEFAULT PostgreSQL sur demandes_sang.expires_at DOIT aussi être
-// ── mis à jour : DEFAULT now() + interval '72 hours' (cf. SQL ci-dessous).
-// SQL : ALTER TABLE public.demandes_sang ALTER COLUMN expires_at SET DEFAULT now() + interval '72 hours';
-const Duration kDureeValiditeDemande = Duration(hours: 72);
+// ── mis à jour via : scripts/migration_expires_at_7jours.sql
+// ── Les deux modifications (SQL + Dart) sont indépendantes.
+// SQL : ALTER TABLE public.demandes_sang ALTER COLUMN expires_at SET DEFAULT now() + interval '7 days';
+const Duration kDureeValiditeDemande = Duration(hours: 168);
 String get kDureeValiditeDemandeLabel {
   if (kDureeValiditeDemande.inHours < 24) {
     return '${kDureeValiditeDemande.inHours}h';
