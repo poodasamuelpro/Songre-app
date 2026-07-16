@@ -233,8 +233,11 @@ export async function notifierUtilisateur(
   }
 
   // ── 5. Insérer dans public.notifications_envoyees ─────────────────────────
-  // skip si fire-and-forget (ex: suppression de compte → ligne sera supprimée)
-  if (!options.skipDbInsert && (result.emailSent || result.fcmSent)) {
+  // L'insertion est inconditionnelle : la notification in-app doit toujours
+  // être enregistrée, indépendamment du succès ou de l'échec des canaux
+  // email et push. skipDbInsert permet de désactiver explicitement l'insert
+  // (ex: cas où le compte sera supprimé immédiatement après).
+  if (!options.skipDbInsert) {
     try {
       const { error: insertError } = await adminClient
         .from("notifications_envoyees")

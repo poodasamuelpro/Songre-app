@@ -314,14 +314,14 @@ Défini dans `ProfilDonneur` (`lib/models/models.dart`, lignes ~224-234) :
 ```dart
 bool get estEligible {
   final joursDepuis = DateTime.now().difference(dernierDonDate!).inDays;
-  return genre == Genre.homme ? joursDepuis >= 60 : joursDepuis >= 90;
+  return genre == Genre.homme ? joursDepuis >= 90 : joursDepuis >= 120;
 }
 ```
 
 | Genre | Délai minimum entre deux dons |
 |---|---|
-| Homme | 60 jours |
-| Femme | 90 jours |
+| Homme | 90 jours |
+| Femme | 120 jours |
 
 Affiché dans l'écran Profil et l'écran Historique. Utilisé par `retour-eligibilite-cron` (pg_cron quotidien 08h00 UTC) pour notifier les donneurs qui redeviennent éligibles.
 

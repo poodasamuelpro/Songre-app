@@ -64,7 +64,7 @@ class _FaqAccueilState extends State<_FaqAccueil> {
   static const _faq = [
     (
       q: 'Qui peut donner du sang avec SONGRE ?',
-      r: 'Tout donneur éligible peut s\'inscrire. L\'éligibilité dépend du délai depuis le dernier don : 60 jours pour les hommes, 90 jours pour les femmes. L\'application vérifie automatiquement votre éligibilité.',
+      r: 'Tout donneur éligible peut s\'inscrire. L\'éligibilité dépend du délai depuis le dernier don : 90 jours pour les hommes, 120 jours pour les femmes. L\'application vérifie automatiquement votre éligibilité.',
     ),
     (
       q: 'Comment fonctionne la mise en relation ?',

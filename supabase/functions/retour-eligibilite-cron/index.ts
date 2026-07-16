@@ -34,18 +34,23 @@ serve(async (req: Request) => {
   });
 
   const maintenant = new Date();
-  const dateMin60 = new Date(maintenant);
-  dateMin60.setDate(dateMin60.getDate() - 91);
+  // Fenêtre SQL couvrant les nouveaux délais 90j (homme) et 120j (femme).
+  // dateMin = maintenant - 121 jours → inclut les femmes devenant éligibles
+  //           dans les 2 prochains jours (délai 120j ± 1j de marge)
+  // dateMax = maintenant - 89 jours  → inclut les hommes devenus éligibles
+  //           hier ou aujourd'hui     (délai 90j ± 1j de marge)
+  const dateMin90 = new Date(maintenant);
+  dateMin90.setDate(dateMin90.getDate() - 121);
 
-  const dateMax60 = new Date(maintenant);
-  dateMax60.setDate(dateMax60.getDate() - 59);
+  const dateMax90 = new Date(maintenant);
+  dateMax90.setDate(dateMax90.getDate() - 89);
 
   const { data: profils, error: profilError } = await adminClient
     .from("profils_donneurs")
     .select("user_id, genre, dernier_don_date, disponible")
     .not("dernier_don_date", "is", null)
-    .gte("dernier_don_date", dateMin60.toISOString().substring(0, 10))
-    .lte("dernier_don_date", dateMax60.toISOString().substring(0, 10));
+    .gte("dernier_don_date", dateMin90.toISOString().substring(0, 10))
+    .lte("dernier_don_date", dateMax90.toISOString().substring(0, 10));
 
   if (profilError) {
     console.error("[retour-eligibilite] Erreur lecture profils:", profilError);
@@ -60,7 +65,7 @@ serve(async (req: Request) => {
 
   for (const profil of profils as ProfilRow[]) {
     const dernierDon = new Date(profil.dernier_don_date);
-    const delaiJours = profil.genre === "femme" ? 90 : 60;
+    const delaiJours = profil.genre === "femme" ? 120 : 90;
     const dateEligibilite = new Date(dernierDon);
     dateEligibilite.setDate(dateEligibilite.getDate() + delaiJours);
 

@@ -220,17 +220,17 @@ class ProfilDonneur {
     required this.updatedAt,
   });
 
-  // Calcul d'éligibilité (60j homme / 90j femme)
+  // Calcul d'éligibilité (90j homme / 120j femme)
   bool get estEligible {
     if (dernierDonDate == null) return true;
     final joursDepuis = DateTime.now().difference(dernierDonDate!).inDays;
-    return genre == Genre.homme ? joursDepuis >= 60 : joursDepuis >= 90;
+    return genre == Genre.homme ? joursDepuis >= 90 : joursDepuis >= 120;
   }
 
   // Date du prochain don possible
   DateTime? get prochainDonDate {
     if (dernierDonDate == null) return null;
-    final delai = genre == Genre.homme ? 60 : 90;
+    final delai = genre == Genre.homme ? 90 : 120;
     return dernierDonDate!.add(Duration(days: delai));
   }
 

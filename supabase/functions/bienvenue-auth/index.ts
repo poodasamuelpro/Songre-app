@@ -30,7 +30,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, handleCors, jsonResponse } from "../_shared/cors.ts";
-import { envoyerEmailDirect } from "../_shared/notifier.ts";
+import { notifierUtilisateur } from "../_shared/notifier.ts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -122,36 +122,27 @@ serve(async (req: Request) => {
     console.log(`[bienvenue-auth] Ligne identites créée/confirmée pour ${newUser.id}`);
   }
 
-  // ── Envoyer l'email de bienvenue ──────────────────────────────────────────
-  const emailSent = await envoyerEmailDirect(
-    newUser.email,
+  // ── Envoyer la notification de bienvenue (email + push + in-app) ──────────
+  // notifierUtilisateur() orchestre les 3 canaux et insère la ligne in-app
+  // inconditionnellement (indépendamment du succès ou de l'échec de l'email
+  // ou du push). Le contenu et le format de l'email bienvenue restent
+  // identiques — seul le chemin de code change.
+  const result = await notifierUtilisateur(
+    adminClient,
+    newUser.id,
     "bienvenue",
     { prenom },
   );
 
-  // Persister la notification (non bloquant si erreur)
-  if (emailSent) {
-    const { error: insertError } = await adminClient
-      .from("notifications_envoyees")
-      .insert({
-        user_id: newUser.id,
-        demande_id: null,
-        type: "bienvenue",
-        lu: false,
-      });
-
-    if (insertError) {
-      console.warn("[bienvenue-auth] Erreur insert notifications_envoyees:", insertError);
-    }
-  }
-
   console.log(
-    `[bienvenue-auth] Nouvel utilisateur ${newUser.id}: email envoyé=${emailSent}`,
+    `[bienvenue-auth] Nouvel utilisateur ${newUser.id}: emailSent=${result.emailSent} fcmSent=${result.fcmSent} dbInserted=${result.dbInserted}`,
   );
 
   return jsonResponse({
     success: true,
     user_id: newUser.id,
-    emailSent,
+    emailSent: result.emailSent,
+    fcmSent: result.fcmSent,
+    dbInserted: result.dbInserted,
   }, 200, corsHeaders);
 });

@@ -84,14 +84,36 @@ serve(async (req: Request) => {
       body = await req.json();
     } catch { /* empty */ }
 
-    if (body.action !== "mdp_modifie") {
-      return jsonResponse({ error: "Action 'mdp_modifie' requise." }, 400, corsHeaders);
+    if (body.action !== "mdp_modifie" && body.action !== "suppression_demandee") {
+      return jsonResponse({ error: "Action 'mdp_modifie' ou 'suppression_demandee' requise." }, 400, corsHeaders);
     }
 
     const dateHeure = new Date().toLocaleString("fr-FR", {
       timeZone: "Africa/Ouagadougou",
     });
 
+    if (body.action === "suppression_demandee") {
+      // Notification de confirmation de demande de suppression de compte.
+      // La ligne notifications_envoyees est insérée inconditionnellement
+      // (l'option skipDbInsert n'est PAS passée ici).
+      const result = await notifierUtilisateur(
+        adminClient,
+        user.id,
+        "suppression_demandee",
+        { date_heure: dateHeure },
+      );
+
+      return jsonResponse({
+        success: true,
+        mode: "explicit",
+        action: "suppression_demandee",
+        emailSent: result.emailSent,
+        fcmSent: result.fcmSent,
+        dbInserted: result.dbInserted,
+      }, 200, corsHeaders);
+    }
+
+    // action === "mdp_modifie"
     const result = await notifierUtilisateur(
       adminClient,
       user.id,
