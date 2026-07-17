@@ -11,7 +11,7 @@ import 'supabase_service.dart';
 //
 // Configuration requise AVANT d'utiliser ce service :
 //   1. Créer un projet Firebase sur https://console.firebase.google.com/
-//   2. Ajouter une app Android avec le package : com.lifesaver.save
+//   2. Ajouter une app Android avec le package : com.songre.app
 //   3. Télécharger google-services.json → android/app/google-services.json
 //   4. Activer Cloud Messaging dans Firebase Console
 //   5. Pour la génération du service account JSON (utilisé dans les

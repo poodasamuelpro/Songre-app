@@ -139,7 +139,7 @@
 | `SONGRE_ENCRYPT_KEY` defaultValue `'SongreProdBurkinaFaso2026_SecureKey!'` | `crypto_service.dart` (defaultValue hardcodé) | Clé AES-256-CBC symétrique | ⚠️ Non — devrait être injectée uniquement via `--dart-define` | **Critique** — clé de déchiffrement des contacts dans l'APK | **P1 BLOQUANT** |
 | `WEBHOOK_SECRET` (sans defaultValue) | `supabase_service.dart` L53-55 | Secret partagé Flutter → EF `valider-token` | ✅ Oui (nécessaire pour valider-token) | Élevé si absent au build (QR inopérant) | **P2 BLOQUANT** |
 | `AIzaSyCYoh65TZC5jfb9WEQGszLa6wK16pJupCI` (`current_key`) | `android/app/google-services.json` | Clé API Firebase (Android Restricted) | ✅ Oui (intégration FCM Android) | Faible si correctement restreinte côté Firebase Console | **P-FCM-KEY** : vérifier restrictions |
-| Package name `com.lifesaver.save` | `build.gradle.kts`, `google-services.json`, `AndroidManifest.xml` | Identifiant Android | ✅ Oui | Incohérence sémantique avec l'app SONGRE | **P11 MINEUR** |
+| Package name `com.songre.app` | `build.gradle.kts`, `google-services.json`, `AndroidManifest.xml` | Identifiant Android | ✅ Oui | Cohérent avec l'identité SONGRE | **P11 RÉSOLU** |
 
 ---
 
@@ -390,9 +390,9 @@ L'absence d'accès direct à la console Supabase empêche de confirmer que les p
 
 ### SEC-08 — Package name incohérent — MINEUR (P11)
 
-**Preuve** : `build.gradle.kts` + `google-services.json` : `com.lifesaver.save`
+**Preuve** : `build.gradle.kts` + `google-services.json` : `com.songre.app`
 
-Le package name `com.lifesaver.save` est un résidu du projet template "Life Saver" et ne correspond pas au nom de l'application SONGRE. Sur le Play Store, ce package name sera définitif et indélébile une fois publié.
+Le package name `com.songre.app` est désormais cohérent avec l'identité SONGRE. Nouveau projet Firebase : `songre-88f2a` (project_number : `855352190629`). **RÉSOLU le 2026-07-17.**
 
 **Impact** : Cosmétique mais définitif. Toute mise à jour future devra utiliser ce même package name. Si l'identité de marque SONGRE est importante, ce nom pourrait créer de la confusion.
 
@@ -602,7 +602,7 @@ L'application collecte : email, groupe sanguin, genre, poids, numéro de télép
 
 ### STORE-04 — Package name définitif
 
-**P11** : `com.lifesaver.save` — voir SEC-08. Une fois publié sur le Play Store, ce package name est **permanent et inchangeable**. Si l'équipe souhaite un package name cohérent avec l'identité SONGRE (ex : `com.songre.app`), **c'est maintenant ou jamais**.
+**P11** : `com.songre.app` — voir SEC-08. Package name changé vers `com.songre.app` (projet Firebase `songre-88f2a`). **RÉSOLU avant publication.** ✅
 
 ---
 
@@ -709,7 +709,7 @@ debugShowCheckedModeBanner: false,
 |----|-------------|------------|
 | P9 | Rate limiting connexion purement client-side (réinitialisé à la navigation) | Acceptable — Supabase Auth gère le 429 côté serveur. Documenter. |
 | P10 | `retour-eligibilite-cron` sans `.limit()` | Ajouter `.limit(500)` sur la requête |
-| P11 | Package name `com.lifesaver.save` incohérent avec SONGRE | Décision urgente avant publication (irréversible) |
+| P11 | Package name `com.songre.app` — nouveau projet Firebase `songre-88f2a` | RÉSOLU — changé vers `com.songre.app` avant publication |
 | P-DON-DATE | Date de don non validée côté EF `don-manuel` | Ajouter validation `date_don <= today` dans l'EF |
 | P-SCANALL | Bouton "Scanner un code" visible pour tous | Conditionner l'affichage à `demande.auteurId == userId` |
 | P-SPAM | Anti-spam `contacter-support` incertain | Vérifier le schéma de `contact_spam_log` (contrainte unique nécessaire) |

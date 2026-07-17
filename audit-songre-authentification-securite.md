@@ -219,7 +219,7 @@ Confirmer que le deep link `songre://` est bien configuré avec `android:scheme=
 
 ### Contexte
 
-L'application affiche "Life Saver" sur l'écran d'accueil Android au lieu de "SONGRE". L'icône peut correspondre à l'ancienne icône Flutter par défaut.
+L'application affichait "Life Saver" sur l'écran d'accueil Android au lieu de "SONGRE". **Ce bug est résolu** : le label pointe maintenant vers `@string/app_name` = `Songre`.
 
 ### Cause racine — `AndroidManifest.xml` : label hardcodé
 
@@ -248,11 +248,11 @@ name: songre   ← correct (nom technique Flutter, n'affecte pas l'affichage And
 **Fichier :** `android/app/build.gradle.kts` — ligne 15, 29
 
 ```kotlin
-namespace = "com.lifesaver.save"
-applicationId = "com.lifesaver.save"
+namespace = "com.songre.app"
+applicationId = "com.songre.app"
 ```
 
-Le `namespace` et `applicationId` utilisent `com.lifesaver.save` — cohérent avec le package name intentionnel de l'app. Ce n'est **pas** un bug (le package name est distinct du nom affiché), mais l'identifier `lifesaver` dans le package ID peut prêter à confusion.
+Le `namespace` et `applicationId` utilisent désormais `com.songre.app` — cohérent avec l'identité SONGRE. **RÉSOLU le 2026-07-17.** Nouveau projet Firebase : `songre-88f2a`.
 
 **Icône :** `pubspec.yaml` lignes 71-75 configure `flutter_launcher_icons` avec `image_path: "assets/icon/app_icon.png"`. La commande `flutter pub run flutter_launcher_icons` a-t-elle été exécutée avec le bon fichier source après configuration ? À vérifier.
 

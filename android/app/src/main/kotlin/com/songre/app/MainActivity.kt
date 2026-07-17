@@ -1,4 +1,4 @@
-package com.lifesaver.save
+package com.songre.app
 
 import io.flutter.embedding.android.FlutterActivity
 

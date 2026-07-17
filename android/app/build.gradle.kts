@@ -12,7 +12,7 @@ plugins {
 }
 
 android {
-    namespace = "com.lifesaver.save"
+    namespace = "com.songre.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -42,7 +42,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.lifesaver.save"
+        applicationId = "com.songre.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

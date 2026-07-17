@@ -1,7 +1,7 @@
 # SONGRE — Application de don de sang anonyme · Burkina Faso
 
 > **Application mobile Flutter** de mise en relation anonyme entre donneurs et demandeurs de sang au Burkina Faso.  
-> Package Android : `com.lifesaver.save` · Version : `1.0.0+1` · Flutter 3.35.4 / Dart 3.9.2
+> Package Android : `com.songre.app` · Version : `1.0.0+1` · Flutter 3.35.4 / Dart 3.9.2
 
 ---
 
@@ -467,10 +467,10 @@ Cela garantit un affichage instantané même sans réseau, avec mise à jour sil
 flutter_app/
 ├── android/                        # Configuration Android (Gradle, Manifest, signatures)
 │   └── app/
-│       ├── build.gradle.kts        # applicationId: com.lifesaver.save
+│       ├── build.gradle.kts        # applicationId: com.songre.app
 │       └── src/main/
 │           ├── AndroidManifest.xml
-│           └── kotlin/com/lifesaver/save/
+│           └── kotlin/com/songre/app/
 │               └── MainActivity.kt
 ├── lib/
 │   ├── main.dart                   # Point d'entrée, init Firebase, init AppState, runApp

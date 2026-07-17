@@ -369,7 +369,7 @@ Tous ✅ — inchangé ou amélioré.
 ### ❌ Action manuelle obligatoire AVANT déploiement Android
 
 - [ ] **R-01 / S-01** : `google-services.json` à placer dans `android/app/`
-  - Firebase Console → Project Settings → Android → `com.lifesaver.save`
+  - Firebase Console → Project Settings → Android → `com.songre.app` (projet `songre-88f2a`)
   - Télécharger `google-services.json` et le copier dans `android/app/`
   - **Sans ce fichier, l'app Android crash au démarrage (Firebase.initializeApp)**
 
