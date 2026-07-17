@@ -19,7 +19,7 @@
 //   );
 //
 // Logique :
-//   - Cherche les donneurs dont dernier_don_date + délai (60j homme / 90j femme)
+//   - Cherche les donneurs dont dernier_don_date + délai (90j homme / 120j femme)
 //     tombe dans les prochains 24h (J+0 ou J+1)
 //   - Envoie une notification "retour_eligibilite" avec un message encourageant
 //     à réactiver leur disponibilité
@@ -75,7 +75,7 @@ serve(async (req: Request) => {
   // On cherche les donneurs dont la date d'éligibilité est aujourd'hui (J+0)
   // ou demain (J+1). Cela permet d'anticiper et d'encourager en avance.
   //
-  // Date d'éligibilité = dernier_don_date + délai (60j ou 90j selon genre)
+  // Date d'éligibilité = dernier_don_date + délai (90j homme ou 120j femme)
   // On récupère tous les donneurs avec dernier_don_date et on filtre en mémoire
   // pour éviter des requêtes SQL complexes.
 
