@@ -32,11 +32,15 @@ export type TemplateName =
   | "mdp_modifie"
   | "contact_support";
 
-// ── Logo SONGRE ─────────────────────────────────────────────────────────────
+// ── Logo SONGRE (base64 inline pour compatibilité email) ──────────────────────
+// URL publique CDN — remplacer par un lien permanent si possible
+// ─── Logo SONGRE ───────────────────────────────────────────────────────────
+// Héberger logo_songre.png sur un CDN public (Supabase Storage, Cloudflare R2,
+// etc.) et mettre l'URL ici. La constante suivante est utilisée dans tous les
+// templates HTML email.
+// ⚠️  D7 NOTE : URL à mettre à jour une fois le logo uploadé sur Supabase Storage.
+//     Exemple : https://<PROJECT_REF>.supabase.co/storage/v1/object/public/assets/logo_songre.png
 const LOGO_URL = "https://ptomqwucvveuflfnyczo.supabase.co/storage/v1/object/public/assets/logo-songre.jpeg";
-
-// Domaine de l'app — configurable via variable d'environnement APP_URL.
-const APP_URL = Deno.env.get("APP_URL") ?? "https://songre.bf";
 
 // ── Base HTML template ────────────────────────────────────────────────────────
 
@@ -69,7 +73,7 @@ function baseTemplate(
       Pour gérer vos préférences, accédez à votre profil dans l'application.
     </p>
     <p style="color:#ccc;font-size:11px;text-align:center;">
-      © SONGRE · <a href="${APP_URL}" style="color:#C0392B;">${APP_URL.replace('https://', '')}</a>
+      © SONGRE · <a href="https://songre.bf" style="color:#C0392B;">songre.bf</a>
     </p>
   </div>
 </body>
@@ -99,7 +103,7 @@ function templateDemandeCompatible(data: Record<string, string>): string {
       ouvrez l'application SONGRE pour répondre à cette demande.
     </p>
     <div style="text-align:center;margin-top:28px;">
-      <a href="${APP_URL}/app"
+      <a href="https://songre.bf/app"
          style="background:#C0392B;color:white;text-decoration:none;
                 padding:12px 28px;border-radius:8px;font-weight:bold;font-size:15px;">
         Ouvrir SONGRE
@@ -183,7 +187,7 @@ function templateReponseRecue(data: Record<string, string>): string {
       et organiser le don dans les meilleurs délais.
     </p>
     <div style="text-align:center;margin-top:28px;">
-      <a href="${APP_URL}/app"
+      <a href="https://songre.bf/app"
          style="background:#C0392B;color:white;text-decoration:none;
                 padding:12px 28px;border-radius:8px;font-weight:bold;font-size:15px;">
         Voir les réponses
@@ -214,7 +218,7 @@ function templateReponseEncouragement(data: Record<string, string>): string {
       Le demandeur vous attend — chaque minute compte.
     </p>
     <div style="text-align:center;margin-top:28px;">
-      <a href="${APP_URL}/app"
+      <a href="https://songre.bf/app"
          style="background:#C0392B;color:white;text-decoration:none;
                 padding:12px 28px;border-radius:8px;font-weight:bold;font-size:15px;">
         Ouvrir SONGRE
@@ -252,7 +256,7 @@ function templateRetourEligibilite(data: Record<string, string>): string {
       dans l'application SONGRE dès maintenant.
     </p>
     <div style="text-align:center;margin-top:28px;">
-      <a href="${APP_URL}/app"
+      <a href="https://songre.bf/app"
          style="background:#C0392B;color:white;text-decoration:none;
                 padding:12px 28px;border-radius:8px;font-weight:bold;font-size:15px;">
         Activer ma disponibilité
@@ -358,128 +362,271 @@ function templateBienvenue(data: Record<string, string>): string {
       </p>
     </div>
     <p style="color:#555;font-size:14px;line-height:1.6;">
-      Merci d'utiliser SONGRE.
-    </p>`,
+      Pour commencer :<br>
+      1. Complétez votre profil (groupe sanguin, poids, ville)<br>
+      2. Activez votre disponibilité<br>
+      3. Répondez aux demandes compatibles dans votre ville
+    </p>
+    <div style="text-align:center;margin-top:28px;">
+      <a href="https://songre.bf/app"
+         style="background:#C0392B;color:white;text-decoration:none;
+                padding:12px 28px;border-radius:8px;font-weight:bold;font-size:15px;">
+        Compléter mon profil
+      </a>
+    </div>`,
     "#27AE60",
   );
 }
 
 function templateMdpModifie(data: Record<string, string>): string {
-  const dateHeure = data["date_heure"] ?? "récemment";
+  const prenom = data["prenom"] ?? "Utilisateur";
+  const dateHeure = data["date_heure"] ?? new Date().toLocaleString("fr-FR");
   return baseTemplate(
-    "Mot de passe modifié",
+    "Votre mot de passe a été modifié",
     `<p style="color:#333;font-size:16px;line-height:1.6;">
-      Votre mot de passe SONGRE a été modifié le <strong>${dateHeure}</strong>.
+      Bonjour <strong>${prenom}</strong>,
     </p>
-    <div style="background:#fff5f5;border-left:4px solid #C0392B;
+    <p style="color:#333;font-size:16px;line-height:1.6;">
+      Le mot de passe de votre compte SONGRE a été modifié avec succès
+      le <strong>${dateHeure}</strong>.
+    </p>
+    <div style="background:#fff3cd;border-left:4px solid #F59E0B;
                 padding:16px;border-radius:6px;margin:20px 0;">
-      <p style="margin:0;font-size:14px;color:#C0392B;font-weight:bold;">
-        Ce n'était pas vous ?
+      <p style="margin:0;font-size:15px;color:#B45309;font-weight:bold;">
+        🔒 Ce n'était pas vous ?
       </p>
-      <p style="margin:8px 0 0;font-size:13px;color:#555;">
-        Si vous n'êtes pas à l'origine de cette modification, contactez
-        immédiatement notre support à <a href="mailto:songre.contact@gmail.com">songre.contact@gmail.com</a>.
+      <p style="margin:0 0 0 0;font-size:14px;color:#92400E;margin-top:8px;">
+        Si vous n'avez pas effectué cette modification, contactez-nous
+        immédiatement à
+        <a href="mailto:songre.contact@gmail.com" style="color:#C0392B;">
+          songre.contact@gmail.com
+        </a>
+        et changez votre mot de passe depuis l'application.
       </p>
-    </div>`,
+    </div>
+    <p style="color:#555;font-size:14px;line-height:1.6;">
+      Si c'est bien vous, ignorez ce message — votre compte est sécurisé.
+    </p>`,
+    "#F59E0B",
   );
 }
 
 function templateContactSupport(data: Record<string, string>): string {
-  const email = data["email"] ?? "Inconnu";
+  const email = data["email"] ?? "";
   const objet = data["objet"] ?? "Sans objet";
   const message = data["message"] ?? "";
-  const userId = data["user_id"] ?? "Inconnu";
-  const dateHeure = data["date_heure"] ?? "";
+  const userId = data["user_id"] ?? "Anonyme";
+  const dateHeure = data["date_heure"] ?? new Date().toLocaleString("fr-FR");
   return baseTemplate(
-    "Nouveau message support",
-    `<p style="color:#333;font-size:14px;line-height:1.6;">
-      <strong>De :</strong> ${email}<br>
-      <strong>User ID :</strong> ${userId}<br>
-      <strong>Date :</strong> ${dateHeure}<br>
-      <strong>Objet :</strong> ${objet}
+    `[SONGRE Support] ${objet}`,
+    `<p style="color:#333;font-size:16px;">
+      Nouveau message depuis l'application SONGRE.
     </p>
-    <div style="background:#f9f9f9;padding:16px;border-radius:6px;
-                border:1px solid #eee;margin:20px 0;white-space:pre-wrap;
-                font-size:14px;color:#444;">${message}</div>`,
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0;">
+      <tr>
+        <td style="padding:8px;font-weight:bold;color:#555;width:120px;">De :</td>
+        <td style="padding:8px;color:#333;">${email}</td>
+      </tr>
+      <tr style="background:#f9f9f9;">
+        <td style="padding:8px;font-weight:bold;color:#555;">User ID :</td>
+        <td style="padding:8px;color:#333;">${userId}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px;font-weight:bold;color:#555;">Objet :</td>
+        <td style="padding:8px;color:#333;">${objet}</td>
+      </tr>
+      <tr style="background:#f9f9f9;">
+        <td style="padding:8px;font-weight:bold;color:#555;">Date :</td>
+        <td style="padding:8px;color:#333;">${dateHeure}</td>
+      </tr>
+    </table>
+    <div style="background:#f9f9f9;border:1px solid #eee;border-radius:8px;
+                padding:16px;margin:16px 0;">
+      <p style="margin:0;font-size:15px;color:#333;white-space:pre-wrap;">${message}</p>
+    </div>
+    <p style="color:#999;font-size:13px;">
+      Répondre directement à : <a href="mailto:${email}" style="color:#C0392B;">${email}</a>
+    </p>`,
   );
 }
 
+// ── Renderer principal ────────────────────────────────────────────────────────
+
 export function renderTemplate(
-  name: TemplateName,
+  template: TemplateName,
   data: Record<string, string> = {},
 ): string | null {
-  switch (name) {
-    case "demande_compatible": return templateDemandeCompatible(data);
-    case "don_confirme": return templateDonConfirme(data);
-    case "don_confirme_demandeur": return templateDonConfirmeDemandeur(data);
-    case "reponse_recue": return templateReponseRecue(data);
-    case "reponse_encouragement": return templateReponseEncouragement(data);
-    case "retour_eligibilite": return templateRetourEligibilite(data);
-    case "don_enregistre_manuel": return templateDonEnregistreManuel(data);
-    case "suppression_demandee": return templateSuppressionDemandee(data);
-    case "suppression_confirmee": return templateSuppressionConfirmee(data);
-    case "bienvenue": return templateBienvenue(data);
-    case "mdp_modifie": return templateMdpModifie(data);
-    case "contact_support": return templateContactSupport(data);
-    default: return null;
+  switch (template) {
+    case "demande_compatible":
+      return templateDemandeCompatible(data);
+    case "don_confirme":
+      return templateDonConfirme(data);
+    case "don_confirme_demandeur":
+      return templateDonConfirmeDemandeur(data);
+    case "reponse_recue":
+      return templateReponseRecue(data);
+    case "reponse_encouragement":
+      return templateReponseEncouragement(data);
+    case "retour_eligibilite":
+      return templateRetourEligibilite(data);
+    case "don_enregistre_manuel":
+      return templateDonEnregistreManuel(data);
+    case "suppression_demandee":
+      return templateSuppressionDemandee(data);
+    case "suppression_confirmee":
+      return templateSuppressionConfirmee(data);
+    case "bienvenue":
+      return templateBienvenue(data);
+    case "mdp_modifie":
+      return templateMdpModifie(data);
+    case "contact_support":
+      return templateContactSupport(data);
+    default:
+      return null;
   }
 }
 
-// ── Envoi d'email rotatif (Simulation simplifiée pour le module) ──────────────
+// ── Fournisseurs email ────────────────────────────────────────────────────────
 
-export async function envoyerEmailRotatif(
+async function envoyerViaBrevo(
+  apiKey: string,
+  from: string,
   to: string,
   subject: string,
   html: string,
+  replyTo?: string,
+): Promise<boolean> {
+  try {
+    const fromMatch = from.match(/^(.+?)\s*<(.+?)>$/);
+    const senderName = fromMatch ? fromMatch[1].trim() : "SONGRE";
+    const senderEmail = fromMatch ? fromMatch[2].trim() : from;
+
+    const body: Record<string, unknown> = {
+      sender: { name: senderName, email: senderEmail },
+      to: [{ email: to }],
+      subject,
+      htmlContent: html,
+    };
+    if (replyTo) body["replyTo"] = { email: replyTo };
+
+    const resp = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      console.warn("[email] Brevo error:", resp.status, errBody.slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn("[email] Brevo fetch error:", err);
+    return false;
+  }
+}
+
+async function envoyerViaResend(
+  apiKey: string,
+  from: string,
+  to: string,
+  subject: string,
+  html: string,
+  replyTo?: string,
+): Promise<boolean> {
+  try {
+    const body: Record<string, unknown> = {
+      from,
+      to: [to],
+      subject,
+      html,
+    };
+    if (replyTo) body["reply_to"] = replyTo;
+
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const errBody = await resp.text();
+      console.warn("[email] Resend error:", resp.status, errBody.slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn("[email] Resend fetch error:", err);
+    return false;
+  }
+}
+
+// ── Orchestrateur rotatif (export principal) ──────────────────────────────────
+
+export async function envoyerEmailRotatif(
+  destinataire: string,
+  sujet: string,
+  htmlBody: string,
   options?: { replyTo?: string },
 ): Promise<EmailResult> {
-  const provider = Deno.env.get("EMAIL_PROVIDER") || "brevo";
-  const apiKey = Deno.env.get("BREVO_API_KEY") || Deno.env.get("RESEND_API_KEY");
-  const from = Deno.env.get("EMAIL_FROM") || "SONGRE <noreply@songre.bf>";
+  const emailFrom = Deno.env.get("EMAIL_FROM") ?? "SONGRE <noreply@songre.bf>";
+  const provider = (Deno.env.get("EMAIL_PROVIDER") ?? "auto").toLowerCase();
 
-  if (!apiKey) {
-    console.error("[email] API Key manquante.");
+  type Tentative = { provider: "brevo" | "resend"; key: string; label: string };
+  const tentatives: Tentative[] = [];
+
+  if (provider === "brevo") {
+    const k1 = Deno.env.get("BREVO_API_KEY");
+    const k2 = Deno.env.get("BREVO_API_KEY_2");
+    if (k1) tentatives.push({ provider: "brevo", key: k1, label: "Brevo/key1" });
+    if (k2) tentatives.push({ provider: "brevo", key: k2, label: "Brevo/key2" });
+  } else if (provider === "resend") {
+    const k1 = Deno.env.get("RESEND_API_KEY");
+    const k2 = Deno.env.get("RESEND_API_KEY_2");
+    if (k1) tentatives.push({ provider: "resend", key: k1, label: "Resend/key1" });
+    if (k2) tentatives.push({ provider: "resend", key: k2, label: "Resend/key2" });
+  } else {
+    // "auto" : Brevo en priorité, Resend en fallback
+    const bk1 = Deno.env.get("BREVO_API_KEY");
+    const bk2 = Deno.env.get("BREVO_API_KEY_2");
+    const rk1 = Deno.env.get("RESEND_API_KEY");
+    const rk2 = Deno.env.get("RESEND_API_KEY_2");
+    if (bk1) tentatives.push({ provider: "brevo", key: bk1, label: "Brevo/key1" });
+    if (bk2) tentatives.push({ provider: "brevo", key: bk2, label: "Brevo/key2" });
+    if (rk1) tentatives.push({ provider: "resend", key: rk1, label: "Resend/key1" });
+    if (rk2) tentatives.push({ provider: "resend", key: rk2, label: "Resend/key2" });
+  }
+
+  if (tentatives.length === 0) {
+    console.warn("[email] Aucune clé email configurée — email ignoré.");
     return { success: false };
   }
 
-  try {
-    let resp;
-    if (provider === "brevo") {
-      resp = await fetch("https://api.brevo.com/v3/smtp/email", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "api-key": apiKey,
-        },
-        body: JSON.stringify({
-          sender: { name: "SONGRE", email: from.split("<")[1].split(">")[0] },
-          to: [{ email: to }],
-          subject,
-          htmlContent: html,
-          replyTo: options?.replyTo ? { email: options.replyTo } : undefined,
-        }),
-      });
+  for (const t of tentatives) {
+    let ok = false;
+    if (t.provider === "brevo") {
+      ok = await envoyerViaBrevo(
+        t.key, emailFrom, destinataire, sujet, htmlBody, options?.replyTo,
+      );
     } else {
-      // Resend
-      resp = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          from,
-          to,
-          subject,
-          html,
-          reply_to: options?.replyTo,
-        }),
-      });
+      ok = await envoyerViaResend(
+        t.key, emailFrom, destinataire, sujet, htmlBody, options?.replyTo,
+      );
     }
 
-    return { success: resp.ok, provider };
-  } catch (err) {
-    console.error("[email] Erreur envoi:", err);
-    return { success: false };
+    if (ok) {
+      console.log(`[email] Envoyé via ${t.label} → ${destinataire}`);
+      return { success: true, provider: t.provider, key: t.label };
+    }
+    console.warn(`[email] ${t.label} échoué, tentative suivante...`);
   }
+
+  return { success: false };
 }

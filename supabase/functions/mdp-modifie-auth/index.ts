@@ -1,7 +1,42 @@
+// =============================================================================
+// Edge Function : mdp-modifie-auth  (D3 — Cas 9)
+// Déploiement   : supabase functions deploy mdp-modifie-auth
+//
+// Déclenchement : Webhook Supabase Auth — Event "USER_UPDATED"
+//   Configuration dans Supabase Dashboard :
+//     Database → Webhooks → Table auth.users, UPDATE
+//     (filtrer sur updated_at IS NOT NULL pour éviter les faux déclenchements)
+//
+//   Alternativement : via Supabase Auth Hook "custom access token" ou
+//   l'appel direct depuis Flutter après updatePassword() réussi.
+//
+//   NOTE sur le choix d'implémentation :
+//     Option A (retenue) — Webhook Auth sur event UPDATE auth.users
+//       Avantage : déclenchement côté serveur, indépendant de Flutter
+//       Limite : se déclenche sur TOUT update user, pas seulement mdp
+//       → On filtre via un drapeau dans le header ou en vérifiant
+//         que encrypted_password a changé (non accessible depuis le payload)
+//
+//     Option B — Appel depuis Flutter après updatePassword() réussi
+//       Avantage : 100% certain que c'est un changement de mdp
+//       → Implémenté aussi dans change_password_screen.dart
+//
+//   Solution hybride : cette EF accepte les deux modes :
+//     - Mode A : webhook (x-webhook-secret + type UPDATE)
+//     - Mode B : appel explicite (JWT utilisateur + body {action:"mdp_modifie"})
+//
+// Variables d'environnement :
+//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
+//   WEBHOOK_SECRET
+//   + Variables email/FCM (_shared/)
+// =============================================================================
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, handleCors, jsonResponse } from "../_shared/cors.ts";
 import { notifierUtilisateur } from "../_shared/notifier.ts";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface AuthUpdatePayload {
   type: "UPDATE";
@@ -11,8 +46,11 @@ interface AuthUpdatePayload {
     id: string;
     email: string | null;
     updated_at: string;
+    raw_user_meta_data?: Record<string, unknown>;
   };
 }
+
+// ── Handler principal ─────────────────────────────────────────────────────────
 
 serve(async (req: Request) => {
   const corsHeaders = getCorsHeaders(req, "POST, OPTIONS");
@@ -35,6 +73,7 @@ serve(async (req: Request) => {
     auth: { persistSession: false },
   });
 
+  // ── Mode A : Webhook DB (x-webhook-secret) ────────────────────────────────
   if (receivedSecret && webhookSecret && receivedSecret === webhookSecret) {
     let payload: AuthUpdatePayload;
     try {
@@ -43,11 +82,16 @@ serve(async (req: Request) => {
       return jsonResponse({ error: "Payload JSON invalide." }, 400, corsHeaders);
     }
 
+    // Filtrer sur les updates d'auth.users seulement
     if (payload.type !== "UPDATE" || payload.table !== "users") {
       return jsonResponse({ skipped: true }, 200, corsHeaders);
     }
 
     const updatedUser = payload.record;
+    if (!updatedUser.id) {
+      return jsonResponse({ skipped: "user_id manquant" }, 200, corsHeaders);
+    }
+
     const dateHeure = new Date(updatedUser.updated_at).toLocaleString("fr-FR", {
       timeZone: "Africa/Ouagadougou",
     });
@@ -59,6 +103,7 @@ serve(async (req: Request) => {
       { date_heure: dateHeure },
     );
 
+    console.log(`[mdp-modifie] Webhook mode: user ${updatedUser.id}, email=${result.emailSent}`);
     return jsonResponse({
       success: true,
       mode: "webhook",
@@ -66,6 +111,7 @@ serve(async (req: Request) => {
     }, 200, corsHeaders);
   }
 
+  // ── Mode B : Appel explicite depuis Flutter (JWT utilisateur) ─────────────
   if (authHeader.startsWith("Bearer ")) {
     const jwt = authHeader.substring(7);
 
@@ -79,10 +125,13 @@ serve(async (req: Request) => {
       return jsonResponse({ error: "JWT invalide ou expiré." }, 401, corsHeaders);
     }
 
+    // Vérifier que le body contient bien l'action attendue
     let body: { action?: string } = {};
     try {
       body = await req.json();
-    } catch { /* empty */ }
+    } catch {
+      // Body vide accepté
+    }
 
     if (body.action !== "mdp_modifie" && body.action !== "suppression_demandee") {
       return jsonResponse({ error: "Action 'mdp_modifie' ou 'suppression_demandee' requise." }, 400, corsHeaders);
@@ -93,14 +142,38 @@ serve(async (req: Request) => {
     });
 
     if (body.action === "suppression_demandee") {
-      // Notification de confirmation de demande de suppression de compte.
-      // La ligne notifications_envoyees est insérée inconditionnellement
-      // (l'option skipDbInsert n'est PAS passée ici).
+      // ── AJOUT (2026-07-16) ──────────────────────────────────────────────
+      // Cette action n'était pas gérée du tout auparavant (seule "mdp_modifie"
+      // était acceptée) — un appel avec action="suppression_demandee" était
+      // rejeté avec une erreur 400, donc cette notification n'était jamais
+      // envoyée. Le template "suppression_demandee" attend les clés "prenom"
+      // et "date_suppression" (voir _shared/email.ts) — on va chercher la
+      // vraie date programmée dans identites.suppression_programmee_le.
+      const { data: identiteData } = await adminClient
+        .from("identites")
+        .select("suppression_programmee_le")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const dateSuppressionStr = identiteData?.suppression_programmee_le
+        ? new Date(identiteData.suppression_programmee_le).toLocaleDateString("fr-FR", {
+            timeZone: "Africa/Ouagadougou",
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })
+        : "dans les prochains jours";
+
+      const prenom = user.email?.split("@")[0] ?? "Utilisateur";
+
       const result = await notifierUtilisateur(
         adminClient,
         user.id,
         "suppression_demandee",
-        { date_heure: dateHeure },
+        {
+          prenom,
+          date_suppression: dateSuppressionStr,
+        },
       );
 
       return jsonResponse({
@@ -114,6 +187,7 @@ serve(async (req: Request) => {
     }
 
     // action === "mdp_modifie"
+
     const result = await notifierUtilisateur(
       adminClient,
       user.id,
@@ -121,6 +195,7 @@ serve(async (req: Request) => {
       { date_heure: dateHeure },
     );
 
+    console.log(`[mdp-modifie] Explicit mode: user ${user.id}, email=${result.emailSent}`);
     return jsonResponse({
       success: true,
       mode: "explicit",

@@ -233,10 +233,12 @@ export async function notifierUtilisateur(
   }
 
   // ── 5. Insérer dans public.notifications_envoyees ─────────────────────────
-  // L'insertion est inconditionnelle : la notification in-app doit toujours
-  // être enregistrée, indépendamment du succès ou de l'échec des canaux
-  // email et push. skipDbInsert permet de désactiver explicitement l'insert
-  // (ex: cas où le compte sera supprimé immédiatement après).
+  // CORRECTIF (2026-07-16) : l'insertion est INCONDITIONNELLE (hors skipDbInsert).
+  // La notification in-app doit toujours être enregistrée, indépendamment du
+  // succès ou de l'échec des canaux email et push — un échec sur un canal ne
+  // doit plus empêcher l'utilisateur de voir la notification dans l'app.
+  // skipDbInsert reste le seul moyen explicite de désactiver l'insert
+  // (ex: suppression_confirmee, où le compte est supprimé juste après).
   if (!options.skipDbInsert) {
     try {
       const { error: insertError } = await adminClient

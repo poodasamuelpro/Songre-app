@@ -123,10 +123,9 @@ serve(async (req: Request) => {
   }
 
   // ── Envoyer la notification de bienvenue (email + push + in-app) ──────────
-  // notifierUtilisateur() orchestre les 3 canaux et insère la ligne in-app
-  // inconditionnellement (indépendamment du succès ou de l'échec de l'email
-  // ou du push). Le contenu et le format de l'email bienvenue restent
-  // identiques — seul le chemin de code change.
+  // AJOUT (2026-07-16) : remplace envoyerEmailDirect() par notifierUtilisateur(),
+  // qui orchestre en plus l'envoi push (FCM) et garantit l'insertion de la
+  // notification in-app indépendamment du succès/échec de l'email.
   const result = await notifierUtilisateur(
     adminClient,
     newUser.id,

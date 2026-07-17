@@ -1,5 +1,10 @@
 // =============================================================================
 // _shared/fcm.ts — Module partagé SONGRE : envoi push FCM HTTP v1 (OAuth2)
+//
+// Extrait de matcher-et-notifier/index.ts — code identique, centralisé ici.
+// Protégé par périmètre strict : NE PAS modifier la logique OAuth2/FCM.
+//
+// Utilisé par : notifier.ts (→ toutes les EFs via notifierUtilisateur)
 // =============================================================================
 
 // ── Types publics ─────────────────────────────────────────────────────────────
@@ -11,6 +16,7 @@ export interface FcmResult {
 }
 
 // ── Obtenir un access_token OAuth2 depuis le service account JSON ─────────────
+// Périmètre strict : logique copiée telle quelle de matcher-et-notifier v2.
 
 export async function getOAuth2AccessToken(
   serviceAccountJson: string,
@@ -95,6 +101,7 @@ export async function getOAuth2AccessToken(
 }
 
 // ── Envoyer une notification FCM HTTP v1 ─────────────────────────────────────
+// Périmètre strict : logique copiée telle quelle de matcher-et-notifier v2.
 
 export async function envoyerFcmV1(
   fcmToken: string,
@@ -143,6 +150,8 @@ export async function envoyerFcmV1(
 }
 
 // ── Récupérer tous les tokens FCM d'un utilisateur depuis device_tokens ───────
+// Retourne un tableau vide si aucun token ou si la requête échoue.
+// doit recevoir un client Supabase admin (service_role).
 
 // deno-lint-ignore no-explicit-any
 export async function getFcmTokensForUser(
@@ -163,6 +172,7 @@ export async function getFcmTokensForUser(
 }
 
 // ── Obtenir un access_token FCM depuis les variables d'environnement ──────────
+// Retourne null si les variables sont absentes.
 
 export async function getFcmAccessTokenFromEnv(): Promise<{
   accessToken: string;
