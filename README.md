@@ -33,7 +33,7 @@ L'application cible le Burkina Faso. Les villes et les structures sanitaires (h�
 |---|---|
 | Site web officiel | `https://songre.bf` |
 | Application Web (démonstration) | `https://songre.bf/app` |
-| Politique de confidentialité | `https://songre.bf/politique-confidentialite` |
+| Politique de confidentialité | `https://songre.vercel.app/fr/confidentialite` |
 | Conditions générales d'utilisation | `https://songre.bf/cgu` |
 | FAQ publique | `https://songre.bf/faq` |
 | À propos | `https://songre.bf/a-propos` |
@@ -721,7 +721,7 @@ L'environnement de build utilise un processus de signature personnalisé via `re
 |---|---|
 | Site web officiel SONGRE | https://songre.bf |
 | Application Web (démo) | https://songre.bf/app |
-| Politique de confidentialité | https://songre.bf/politique-confidentialite |
+| Politique de confidentialité | https://songre.vercel.app/fr/confidentialite |
 | CGU | https://songre.bf/cgu |
 | FAQ publique | https://songre.bf/faq |
 | À propos | https://songre.bf/a-propos |
