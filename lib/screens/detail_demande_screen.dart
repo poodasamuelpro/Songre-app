@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/sauve_theme.dart';
 import '../services/app_state.dart';
 import '../services/supabase_service.dart';
@@ -63,6 +66,7 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
   /// [P2] Charge les téléphones chiffrés des donneurs ayant répondu,
   /// puis les déchiffre. Accessible uniquement à l'auteur de la demande.
   Future<void> _chargerContactsDonneurs() async {
+    if (!mounted) return;
     setState(() => _contactsDonneursLoading = true);
     final contacts = await SupabaseService.lireContactsDonneurs(
       widget.demande.id,
@@ -260,18 +264,20 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
             if (_contactLoading)
               _buildContactLoadingRow()
             else if (_repondu && demande.contactChiffre != null) ...[
-              _buildInfoRow(
+              // [4.7] Contact principal du demandeur — cliquable tel:
+              _buildContactRow(
                 icon: Icons.phone_outlined,
                 label: 'Contact principal',
-                value: CryptoService.dechiffrer(demande.contactChiffre) ??
+                telephone: CryptoService.dechiffrer(demande.contactChiffre) ??
                     'Contact indisponible',
               ),
               if (demande.contactSecondaireChiffre != null) ...[
                 const SizedBox(height: 8),
-                _buildInfoRow(
+                // [4.7] Contact secondaire du demandeur — cliquable tel:
+                _buildContactRow(
                   icon: Icons.phone_callback_outlined,
                   label: 'Contact secondaire',
-                  value: CryptoService.dechiffrer(
+                  telephone: CryptoService.dechiffrer(
                           demande.contactSecondaireChiffre) ??
                       'Contact indisponible',
                 ),
@@ -326,10 +332,11 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
       final contact = _contactsDonneurs[i];
       final tel = contact['telephone'];
       widgets.add(
-        _buildInfoRow(
+        // [4.7] Téléphone donneur — cliquable tel:
+        _buildContactRow(
           icon: Icons.volunteer_activism_outlined,
           label: 'Donneur ${i + 1}',
-          value: tel != null && tel.isNotEmpty ? tel : 'Contact non renseigné',
+          telephone: tel != null && tel.isNotEmpty ? tel : null,
         ),
       );
     }
@@ -437,6 +444,127 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
     );
   }
 
+  // [4.7] Normalise un numéro de téléphone pour un lien tel:
+  // Supprime espaces, tirets, points, parenthèses, barres obliques.
+  String _normaliserTelephone(String tel) {
+    return tel.replaceAll(RegExp(r'[\s\-.()/]'), '');
+  }
+
+  // [4.7] Lance un appel téléphonique via le schéma tel:.
+  // Si canLaunchUrl() retourne false (ex. émulateur sans dialer),
+  // copie le numéro dans le presse-papier et informe l'utilisateur.
+  Future<void> _appelerTelephone(BuildContext ctx, String tel) async {
+    final normalise = _normaliserTelephone(tel);
+    final uri = Uri.parse('tel:$normalise');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        // Fallback : copier dans le presse-papier
+        await Clipboard.setData(ClipboardData(text: normalise));
+        if (ctx.mounted) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Numéro copié : $normalise',
+                style: GoogleFonts.inter(fontSize: 13),
+              ),
+              backgroundColor: SauveColors.gris,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[DetailDemandeScreen] appelerTelephone: $e');
+      if (ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Impossible d\'ouvrir le dialer.',
+              style: GoogleFonts.inter(fontSize: 13),
+            ),
+            backgroundColor: SauveColors.gris,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  // [4.7] Ligne de contact téléphonique cliquable.
+  // Si [telephone] est null ou vide, affiche un texte statique non cliquable.
+  // Un appui déclenche le dialer natif. Si le dialer n'est pas disponible
+  // (canLaunchUrl = false), le numéro est copié dans le presse-papier.
+  Widget _buildContactRow({
+    required IconData icon,
+    required String label,
+    String? telephone,
+  }) {
+    final bool hasPhone = telephone != null &&
+        telephone.isNotEmpty &&
+        telephone != 'Contact indisponible';
+    return GestureDetector(
+      onTap: hasPhone
+          ? () => _appelerTelephone(context, telephone)
+          : null,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: SauveColors.carte,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: hasPhone
+                ? SauveColors.vert.withValues(alpha: 0.4)
+                : SauveColors.grisClair,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18,
+                color: hasPhone ? SauveColors.vert : SauveColors.gris),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: GoogleFonts.inter(fontSize: 13, color: SauveColors.gris),
+            ),
+            const Spacer(),
+            if (hasPhone) ...[
+              Flexible(
+                child: Text(
+                  telephone,
+                  style: GoogleFonts.inter(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: SauveColors.vert,
+                    decoration: TextDecoration.underline,
+                    decorationColor: SauveColors.vert,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Icon(Icons.call, size: 16, color: SauveColors.vert),
+            ] else
+              Text(
+                telephone ?? 'Non renseigné',
+                style: GoogleFonts.inter(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w500,
+                  color: SauveColors.gris,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildActionRow(DemandeSang demande) {
     final state = context.watch<AppState>();
     return Padding(
@@ -494,8 +622,11 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          // Bouton "Scanner un code" (demandeur)
-          if (state.userId != null)
+          // Bouton "Scanner un code" (demandeur uniquement)
+          // [P-SCANALL corrigé] : conditionné sur estAuteur pour éviter qu'un
+          // donneur puisse tenter de scanner un QR — cette action est réservée
+          // au demandeur qui valide le don sur place.
+          if (state.userId != null && state.userId == demande.auteurId)
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -609,7 +740,12 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
 
   Future<void> _repondre() async {
     final demande = widget.demande;
+    // Capturer le state et le messenger AVANT tout await pour éviter
+    // un accès à un BuildContext potentiellement invalide après un
+    // notifyListeners() déclenché par enregistrerReponseDonneur().
     final state = context.read<AppState>();
+    // ignore: use_build_context_synchronously — volontaire : messenger capturé avant await
+    final messenger = ScaffoldMessenger.of(context);
 
     // [1.5] Mise à jour optimiste — confirmée par _chargerEtatRepondu() en cas de succès
     setState(() => _repondu = true);
@@ -619,15 +755,21 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
     if (!mounted) return;
 
     if (ok) {
-      // Recharger depuis la vue serveur pour avoir l'état canonique
-      await _chargerEtatRepondu();
+      // Recharger depuis la vue serveur pour avoir l'état canonique.
+      // Utiliser addPostFrameCallback pour éviter un setState() pendant
+      // la phase de reconstruction déclenchée par notifyListeners().
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _chargerEtatRepondu();
+      });
     } else {
       // Rollback optim si l'enregistrement a échoué
       setState(() => _repondu = false);
     }
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    // Afficher le SnackBar via le messenger capturé avant les awaits.
+    // Cela garantit que même si le BuildContext a été reconstruit entre
+    // temps, le message s'affiche correctement sans accès à context invalide.
+    messenger.showSnackBar(
       SnackBar(
         content: Text(
           ok

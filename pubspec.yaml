@@ -54,6 +54,9 @@ dependencies:
   # URLs externes (D9 — Mission D)
   url_launcher: ^6.3.2
 
+  # Version dynamique depuis pubspec.yaml (4.5)
+  package_info_plus: ^8.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

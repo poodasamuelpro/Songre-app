@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../theme/sauve_theme.dart';
 import '../services/supabase_service.dart';
 
@@ -20,11 +21,32 @@ class _ParametresScreenState extends State<ParametresScreen> {
   List<LienExterne> _liens = [];
   bool _chargement = true;
   String? _erreur;
+  // [4.5] Version lue dynamiquement depuis pubspec.yaml via package_info_plus
+  String? _version;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _chargerLiens());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _chargerVersion();
+      _chargerLiens();
+    });
+  }
+
+  /// [4.5] Charge la version de l'application depuis les métadonnées du package.
+  /// Utilise package_info_plus pour lire la valeur réelle de pubspec.yaml.
+  Future<void> _chargerVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() => _version = info.version);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[ParametresScreen] erreur chargement version: $e');
+      }
+      // En cas d'erreur, on garde _version == null → affiche '—'
+    }
   }
 
   Future<void> _chargerLiens() async {
@@ -216,7 +238,8 @@ class _ParametresScreenState extends State<ParametresScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'SONGRE v1.0.0',
+                // [4.5] Version lue depuis pubspec.yaml via package_info_plus
+                'SONGRE v${_version ?? '—'}',
                 style: GoogleFonts.inter(
                   fontSize: 13,
                   color: SauveColors.gris,
@@ -253,7 +276,8 @@ class _ParametresScreenState extends State<ParametresScreen> {
   Widget _buildInfoApp() {
     final items = [
       (icone: Icons.bloodtype_outlined, label: 'Application', valeur: 'SONGRE'),
-      (icone: Icons.tag, label: 'Version', valeur: '1.0.0'),
+      // [4.5] Version lue dynamiquement depuis pubspec.yaml
+      (icone: Icons.tag, label: 'Version', valeur: _version ?? '—'),
       (icone: Icons.location_on_outlined, label: 'Pays', valeur: 'Burkina Faso'),
       (
         icone: Icons.security_outlined,

@@ -11,12 +11,15 @@ import 'router.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Firebase — protégé par try/catch pour éviter un crash si le réseau
-  // est indisponible ou si google-services.json est incomplet.
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    if (kDebugMode) debugPrint('[main] Firebase init skipped: $e');
+  // Firebase — initialisé uniquement sur Android (et iOS le moment venu).
+  // Sur Web, Firebase n'est pas configuré (pas de firebase_options.dart,
+  // pas de google-services Web) — on évite la tentative silencieuse ratée.
+  if (!kIsWeb) {
+    try {
+      await Firebase.initializeApp();
+    } catch (e) {
+      if (kDebugMode) debugPrint('[main] Firebase init skipped: $e');
+    }
   }
 
   // Formats de dates en français

@@ -1160,34 +1160,87 @@ class SupabaseService {
   // =====================================================================
   // RÉPONSE DONNEUR — Persistance en base
   // =====================================================================
+
+  /// Tente d'enregistrer la réponse d'un donneur avec retry réseau.
+  ///
+  /// Stratégie : 3 tentatives maximum avec backoff exponentiel.
+  ///   - Tentative 1 : immédiate
+  ///   - Tentative 2 : après 1 seconde
+  ///   - Tentative 3 : après 2 secondes
+  ///
+  /// Le retry ne s'applique qu'aux erreurs réseau (TimeoutException,
+  /// SocketException, etc.). Les réponses HTTP (même 4xx/5xx) sont
+  /// retournées immédiatement sans retry — seules les exceptions levées
+  /// avant d'obtenir une réponse sont concernées.
+  ///
+  /// _requeteAvecRefresh() continue de gérer le retry sur 401 (token
+  /// refresh) de façon transparente et indépendante.
   static Future<bool> enregistrerReponseDonneur({
     required String donneurId,
     required String demandeId,
   }) async {
     if (!estConfigured) return false;
-    try {
-      final url = Uri.parse('$_supabaseUrl/rest/v1/reponses_donneurs');
-      final hdrs = {
-        ..._restHeaders(withAuth: true),
-        'Prefer': 'return=minimal,resolution=ignore-duplicates',
-      };
-      final body = jsonEncode({
-        'donneur_id': donneurId,
-        'demande_id': demandeId,
-      });
-      final resp = await _requeteAvecRefresh(
-        () => http.post(url, headers: hdrs, body: body)
-            .timeout(const Duration(seconds: 10)),
-      );
-      return resp.statusCode == 201 ||
-          resp.statusCode == 200 ||
-          resp.statusCode == 204;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[SupabaseService] enregistrerReponseDonneur error: $e');
+
+    const int maxTentatives = 3;
+    // Délais avant chaque nouvelle tentative (ms). La première tentative
+    // (index 0) est immédiate — ces délais s'appliquent avant les suivantes.
+    const List<int> delaisMs = [0, 1000, 2000];
+
+    final url = Uri.parse('$_supabaseUrl/rest/v1/reponses_donneurs');
+    final hdrs = {
+      ..._restHeaders(withAuth: true),
+      'Prefer': 'return=minimal,resolution=ignore-duplicates',
+    };
+    final body = jsonEncode({
+      'donneur_id': donneurId,
+      'demande_id': demandeId,
+    });
+
+    for (int tentative = 0; tentative < maxTentatives; tentative++) {
+      // Attente avant retry (la première tentative a un délai de 0ms)
+      if (delaisMs[tentative] > 0) {
+        await Future.delayed(Duration(milliseconds: delaisMs[tentative]));
       }
-      return false;
+      try {
+        final resp = await _requeteAvecRefresh(
+          () => http.post(url, headers: hdrs, body: body)
+              .timeout(const Duration(seconds: 10)),
+        );
+
+        // Succès HTTP : on retourne immédiatement, pas de retry
+        if (resp.statusCode == 201 ||
+            resp.statusCode == 200 ||
+            resp.statusCode == 204) {
+          return true;
+        }
+
+        // Échec HTTP (4xx/5xx) : on retourne false sans retry
+        // (le serveur a répondu — ce n'est pas une erreur réseau)
+        if (kDebugMode) {
+          debugPrint(
+            '[SupabaseService] enregistrerReponseDonneur HTTP ${resp.statusCode}'
+            ' (tentative ${tentative + 1}/$maxTentatives) — pas de retry',
+          );
+        }
+        return false;
+      } catch (e) {
+        // Erreur réseau (TimeoutException, SocketException, etc.)
+        if (kDebugMode) {
+          debugPrint(
+            '[SupabaseService] enregistrerReponseDonneur error'
+            ' (tentative ${tentative + 1}/$maxTentatives): $e',
+          );
+        }
+        // Si c'était la dernière tentative, on abandonne
+        if (tentative == maxTentatives - 1) {
+          return false;
+        }
+        // Sinon on laisse la boucle continuer (retry après délai)
+      }
     }
+
+    // Normalement inatteignable, mais requis par Dart pour le type
+    return false;
   }
 
   // =====================================================================

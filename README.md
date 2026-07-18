@@ -622,6 +622,28 @@ Sans cette colonne, les téléphones ne s'enregistrent pas (l'erreur Supabase es
 
 ## 6. FAQ
 
+### Variables d'environnement requises avant tout build release
+
+Avant d'exécuter `make apk`, les variables d'environnement suivantes **doivent être définies** dans le shell courant :
+
+| Variable | Rôle | Obligatoire |
+|---|---|---|
+| `WEBHOOK_SECRET` | Secret partagé entre le client Flutter et l'Edge Function `valider-token` — injecté via `--dart-define`. Doit correspondre exactement à la valeur configurée dans Supabase Dashboard → Edge Functions → Environment Variables. | **Oui** |
+
+```bash
+# Exemple de configuration avant build (ne jamais committer cette valeur en dur)
+export WEBHOOK_SECRET="votre_secret_ici"
+
+# Puis lancer le build
+make apk
+```
+
+> **IMPORTANT :** Si `WEBHOOK_SECRET` n'est pas défini, le build s'exécute mais le secret sera une chaîne vide, ce qui rendra la validation QR (`valider-token`) systématiquement rejetée en production. Toujours vérifier que la variable est exportée avant de lancer `make apk`.
+
+> **Sécurité :** Ne jamais écrire la valeur de `WEBHOOK_SECRET` en dur dans `Makefile`, dans le code Flutter, ni dans un fichier versionné. La valeur est injectée à la compilation via `--dart-define` et n'est pas stockée dans le dépôt git.
+
+---
+
 ### Comment lancer le projet en local ?
 
 ```bash
@@ -635,9 +657,11 @@ flutter pub get
 # Lancer en debug (web)
 flutter run -d chrome
 
-# Build APK release
+# Build APK release (WEBHOOK_SECRET doit être exporté au préalable)
+export WEBHOOK_SECRET="votre_secret_ici"
 flutter build apk --release \
-  --dart-define=SONGRE_ENCRYPT_KEY=SongreProdBurkinaFaso2026_SecureKey!
+  --dart-define=SONGRE_ENCRYPT_KEY=SongreProdBurkinaFaso2026_SecureKey! \
+  --dart-define=WEBHOOK_SECRET=$WEBHOOK_SECRET
 ```
 
 ### Comment configurer les variables Supabase ?

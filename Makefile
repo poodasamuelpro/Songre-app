@@ -22,6 +22,7 @@ apk:
 	@cd $(shell pwd) && bash scripts/pre_build_check.sh
 	flutter build apk --release \
 		--dart-define=SONGRE_ENCRYPT_KEY=SongreProdBurkinaFaso2026_SecureKey! \
+		--dart-define=WEBHOOK_SECRET=$$WEBHOOK_SECRET \
 		--dart-define=flutter.inspector.structuredErrors=false \
 		--dart-define=debugShowCheckedModeBanner=false
 	@echo "✅ APK généré : build/app/outputs/flutter-apk/app-release.apk"

@@ -42,6 +42,12 @@ export type TemplateName =
 //     Exemple : https://<PROJECT_REF>.supabase.co/storage/v1/object/public/assets/logo_songre.png
 const LOGO_URL = "https://ptomqwucvveuflfnyczo.supabase.co/storage/v1/object/public/assets/logo-songre.jpeg";
 
+// [4.6] URL de base de l'application — lue depuis la variable d'environnement
+// Supabase APP_URL (Project Settings → Edge Functions → Environment Variables).
+// Fallback : https://songre.vercel.app (déploiement Vercel de référence).
+// NE PAS hardcoder https://songre.bf/app ici — utiliser cette constante partout.
+const APP_URL = Deno.env.get("APP_URL") ?? "https://songre.vercel.app";
+
 // ── Base HTML template ────────────────────────────────────────────────────────
 
 function baseTemplate(
@@ -73,7 +79,7 @@ function baseTemplate(
       Pour gérer vos préférences, accédez à votre profil dans l'application.
     </p>
     <p style="color:#ccc;font-size:11px;text-align:center;">
-      © SONGRE · <a href="https://songre.bf" style="color:#C0392B;">songre.bf</a>
+      © SONGRE · <a href="${APP_URL}" style="color:#C0392B;">songre.bf</a>
     </p>
   </div>
 </body>
@@ -103,7 +109,7 @@ function templateDemandeCompatible(data: Record<string, string>): string {
       ouvrez l'application SONGRE pour répondre à cette demande.
     </p>
     <div style="text-align:center;margin-top:28px;">
-      <a href="https://songre.bf/app"
+      <a href="${APP_URL}"
          style="background:#C0392B;color:white;text-decoration:none;
                 padding:12px 28px;border-radius:8px;font-weight:bold;font-size:15px;">
         Ouvrir SONGRE
@@ -187,7 +193,7 @@ function templateReponseRecue(data: Record<string, string>): string {
       et organiser le don dans les meilleurs délais.
     </p>
     <div style="text-align:center;margin-top:28px;">
-      <a href="https://songre.bf/app"
+      <a href="${APP_URL}"
          style="background:#C0392B;color:white;text-decoration:none;
                 padding:12px 28px;border-radius:8px;font-weight:bold;font-size:15px;">
         Voir les réponses
@@ -218,7 +224,7 @@ function templateReponseEncouragement(data: Record<string, string>): string {
       Le demandeur vous attend — chaque minute compte.
     </p>
     <div style="text-align:center;margin-top:28px;">
-      <a href="https://songre.bf/app"
+      <a href="${APP_URL}"
          style="background:#C0392B;color:white;text-decoration:none;
                 padding:12px 28px;border-radius:8px;font-weight:bold;font-size:15px;">
         Ouvrir SONGRE
@@ -256,7 +262,7 @@ function templateRetourEligibilite(data: Record<string, string>): string {
       dans l'application SONGRE dès maintenant.
     </p>
     <div style="text-align:center;margin-top:28px;">
-      <a href="https://songre.bf/app"
+      <a href="${APP_URL}"
          style="background:#C0392B;color:white;text-decoration:none;
                 padding:12px 28px;border-radius:8px;font-weight:bold;font-size:15px;">
         Activer ma disponibilité
@@ -368,7 +374,7 @@ function templateBienvenue(data: Record<string, string>): string {
       3. Répondez aux demandes compatibles dans votre ville
     </p>
     <div style="text-align:center;margin-top:28px;">
-      <a href="https://songre.bf/app"
+      <a href="${APP_URL}"
          style="background:#C0392B;color:white;text-decoration:none;
                 padding:12px 28px;border-radius:8px;font-weight:bold;font-size:15px;">
         Compléter mon profil
