@@ -13,6 +13,7 @@ import '../screens/nouvelle_demande_screen.dart';
 import '../screens/detail_demande_screen.dart';
 import '../screens/scan_qr_screen.dart';
 import '../screens/reset_password_screen.dart';
+import '../screens/carte_structures_screen.dart';
 import '../models/models.dart';
 
 // =====================================================================
@@ -196,6 +197,30 @@ GoRouter buildRouter(AppState appState) {
               return SlideTransition(
                 position: Tween<Offset>(
                   begin: const Offset(1, 0),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOutCubic,
+                )),
+                child: child,
+              );
+            },
+          );
+        },
+      ),
+      // [Mission E — carte] Écran carte des structures sanitaires.
+      // extra = StructureSanitaire? (optionnel, passé depuis DetailDemandeScreen)
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/carte-structures',
+        pageBuilder: (ctx, state) {
+          final structureContexte = state.extra as StructureSanitaire?;
+          return CustomTransitionPage(
+            child: CarteStructuresScreen(structureContexte: structureContexte),
+            transitionsBuilder: (ctx, animation, _, child) {
+              return SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 1),
                   end: Offset.zero,
                 ).animate(CurvedAnimation(
                   parent: animation,

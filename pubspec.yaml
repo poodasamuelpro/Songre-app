@@ -54,6 +54,13 @@ dependencies:
   # URLs externes (D9 — Mission D)
   url_launcher: ^6.3.2
 
+  # Carte intégrée (Option A — Mission E carte)
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
+  # Géolocalisation runtime (Option A — Mission E carte)
+  geolocator: ^13.0.2
+
   # Version dynamique depuis pubspec.yaml (4.5)
   package_info_plus: ^8.1.2
 

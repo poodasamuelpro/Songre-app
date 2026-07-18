@@ -514,13 +514,15 @@ class SupabaseService {
   // =====================================================================
 
   /// Charge la liste des villes actives depuis public.villes
+  /// [Mission E] Inclut désormais latitude et longitude pour la carte.
   static Future<List<Ville>> lireVilles() async {
     if (!estConfigured) return [];
     try {
       final url = Uri.parse(
         '$_supabaseUrl/rest/v1/villes'
         '?active=eq.true'
-        '&order=nom.asc',
+        '&order=nom.asc'
+        '&select=id,nom,region_id,active,latitude,longitude',
       );
       final resp = await _requeteAvecRefresh(
         () => http.get(url, headers: _restHeaders(withAuth: true))
@@ -537,7 +539,8 @@ class SupabaseService {
     }
   }
 
-  /// Charge les structures sanitaires actives d'une ville donnée
+  /// Charge les structures sanitaires actives d'une ville donnée.
+  /// [Mission E] Inclut désormais latitude et longitude pour la carte.
   static Future<List<StructureSanitaire>> lireStructures(int villeId) async {
     if (!estConfigured) return [];
     try {
@@ -545,7 +548,8 @@ class SupabaseService {
         '$_supabaseUrl/rest/v1/structures_sanitaires'
         '?ville_id=eq.$villeId'
         '&active=eq.true'
-        '&order=nom.asc',
+        '&order=nom.asc'
+        '&select=id,nom,ville_id,type,active,latitude,longitude',
       );
       final resp = await _requeteAvecRefresh(
         () => http.get(url, headers: _restHeaders(withAuth: true))
@@ -561,6 +565,75 @@ class SupabaseService {
     } catch (e) {
       if (kDebugMode) debugPrint('[SupabaseService] lireStructures error: $e');
       return [];
+    }
+  }
+
+  /// [Mission E — carte] Charge toutes les structures sanitaires actives,
+  /// avec filtrage optionnel par ville.
+  /// Utilisé par CarteStructuresScreen pour afficher les marqueurs.
+  static Future<List<StructureSanitaire>> lireStructuresSanitaires({
+    int? villeId,
+  }) async {
+    if (!estConfigured) return [];
+    try {
+      String query =
+          '$_supabaseUrl/rest/v1/structures_sanitaires'
+          '?active=eq.true'
+          '&order=nom.asc'
+          '&select=id,nom,ville_id,type,active,latitude,longitude';
+      if (villeId != null) {
+        query += '&ville_id=eq.$villeId';
+      }
+      final url = Uri.parse(query);
+      final resp = await _requeteAvecRefresh(
+        () => http.get(url, headers: _restHeaders(withAuth: true))
+            .timeout(const Duration(seconds: 10)),
+      );
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body) as List;
+        return list
+            .map((e) => StructureSanitaire.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[SupabaseService] lireStructuresSanitaires error: $e');
+      }
+      return [];
+    }
+  }
+
+  /// [Mission E — carte] Lit la valeur d'une clé dans la table public.app_config.
+  ///
+  /// Exemple : `lireConfigCarte()` retourne `'externe'` ou `'integree'`.
+  /// Si la table n'existe pas encore (SQL pas encore exécuté), retourne la
+  /// valeur par défaut `'externe'` pour ne pas bloquer l'app.
+  static Future<String> lireConfigCarte() async {
+    const defaultMode = 'externe';
+    if (!estConfigured) return defaultMode;
+    try {
+      final url = Uri.parse(
+        '$_supabaseUrl/rest/v1/app_config'
+        '?cle=eq.mode_carte'
+        '&limit=1'
+        '&select=valeur',
+      );
+      final resp = await _requeteAvecRefresh(
+        () => http.get(url, headers: _restHeaders(withAuth: true))
+            .timeout(const Duration(seconds: 8)),
+      );
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body) as List;
+        if (list.isNotEmpty) {
+          final valeur = (list.first as Map<String, dynamic>)['valeur'] as String?;
+          if (valeur == 'integree' || valeur == 'externe') return valeur!;
+        }
+      }
+      return defaultMode;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SupabaseService] lireConfigCarte error: $e');
+      return defaultMode;
     }
   }
 

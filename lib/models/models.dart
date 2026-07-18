@@ -110,19 +110,30 @@ class Ville {
   final String nom;
   final int? regionId;
   final bool active;
+  // [Mission E — carte] Coordonnées géographiques de la ville.
+  // Null si non encore renseignées dans la base (exécuter MODIFICATIONS_MANUELLES_CARTE.sql).
+  final double? latitude;
+  final double? longitude;
 
   const Ville({
     required this.id,
     required this.nom,
     this.regionId,
     this.active = true,
+    this.latitude,
+    this.longitude,
   });
+
+  /// Retourne true si la ville possède des coordonnées géographiques valides.
+  bool get estGeolocalise => latitude != null && longitude != null;
 
   factory Ville.fromJson(Map<String, dynamic> json) => Ville(
         id: json['id'] as int,
         nom: json['nom'] as String,
         regionId: json['region_id'] as int?,
         active: json['active'] as bool? ?? true,
+        latitude: (json['latitude'] as num?)?.toDouble(),
+        longitude: (json['longitude'] as num?)?.toDouble(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -130,6 +141,8 @@ class Ville {
         'nom': nom,
         'region_id': regionId,
         'active': active,
+        'latitude': latitude,
+        'longitude': longitude,
       };
 
   @override
@@ -145,6 +158,10 @@ class StructureSanitaire {
   final int villeId;
   final String? type;
   final bool active;
+  // [Mission E — carte] Coordonnées géographiques de la structure.
+  // Null si non encore renseignées dans la base (exécuter MODIFICATIONS_MANUELLES_CARTE.sql).
+  final double? latitude;
+  final double? longitude;
 
   const StructureSanitaire({
     required this.id,
@@ -152,7 +169,12 @@ class StructureSanitaire {
     required this.villeId,
     this.type,
     this.active = true,
+    this.latitude,
+    this.longitude,
   });
+
+  /// Retourne true si la structure possède des coordonnées géographiques valides.
+  bool get estGeolocalise => latitude != null && longitude != null;
 
   factory StructureSanitaire.fromJson(Map<String, dynamic> json) =>
       StructureSanitaire(
@@ -161,6 +183,8 @@ class StructureSanitaire {
         villeId: json['ville_id'] as int,
         type: json['type'] as String?,
         active: json['active'] as bool? ?? true,
+        latitude: (json['latitude'] as num?)?.toDouble(),
+        longitude: (json['longitude'] as num?)?.toDouble(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -169,6 +193,8 @@ class StructureSanitaire {
         'ville_id': villeId,
         'type': type,
         'active': active,
+        'latitude': latitude,
+        'longitude': longitude,
       };
 
   @override

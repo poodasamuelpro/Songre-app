@@ -650,6 +650,43 @@ class _DetailDemandeScreenState extends State<DetailDemandeScreen> {
                 ),
               ),
             ),
+          // [Mission E — carte] Bouton "Voir sur la carte" visible par tous.
+          // Passe la structure liée à la demande comme contexte (extra).
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                // Passe structureId + nom pour construction minimaliste du contexte ;
+                // les coordonnées seront chargées par CarteStructuresScreen via la DB.
+                StructureSanitaire? structureContexte;
+                if (demande.structureId != null) {
+                  structureContexte = StructureSanitaire(
+                    id: demande.structureId!,
+                    nom: demande.structureNom,
+                    villeId: demande.villeId ?? 0,
+                  );
+                }
+                context.push('/carte-structures', extra: structureContexte);
+              },
+              icon: const Icon(Icons.map_outlined, size: 18),
+              label: Text(
+                'Voir sur la carte',
+                style: GoogleFonts.archivo(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: SauveColors.encre,
+                side: const BorderSide(color: SauveColors.grisClair, width: 1.5),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

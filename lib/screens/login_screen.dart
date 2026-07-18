@@ -1,4 +1,5 @@
 import 'dart:async'; // unawaited()
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -758,6 +759,9 @@ class _ProfilFormState extends State<_ProfilForm> {
   // Téléphone optionnel — chiffré avant envoi en base
   final TextEditingController _telephoneCtrl = TextEditingController();
   bool _consentement = false;
+  // [Mission E — carte] Consentement géolocalisation — collecté dans ce même formulaire
+  // de création de profil, juste après le consentement santé. Non bloquant.
+  bool _consentementGeoloc = false;
   bool _loading = false;
 
   @override
@@ -849,6 +853,8 @@ class _ProfilFormState extends State<_ProfilForm> {
             _buildContreIndications(),
             const SizedBox(height: 20),
             _buildConsentement(),
+            const SizedBox(height: 12),
+            _buildConsentementGeoloc(),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
@@ -1109,6 +1115,39 @@ class _ProfilFormState extends State<_ProfilForm> {
     );
   }
 
+  // [Mission E — carte] Checkbox de consentement géolocalisation.
+  // Non obligatoire (refus = flux normal, carte centrée sur la ville du profil).
+  // Affiché juste après le consentement santé, même écran, même style.
+  Widget _buildConsentementGeoloc() {
+    return GestureDetector(
+      onTap: () => setState(() => _consentementGeoloc = !_consentementGeoloc),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Checkbox(
+            value: _consentementGeoloc,
+            onChanged: (v) =>
+                setState(() => _consentementGeoloc = v ?? false),
+            activeColor: SauveColors.encre,
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                'J\'autorise l\'application à utiliser ma position GPS pour m\'afficher sur la carte des structures sanitaires (optionnel — vous pouvez refuser sans impact sur le reste de l\'application).',
+                style: GoogleFonts.inter(
+                  fontSize: 12.5,
+                  color: SauveColors.gris,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _valider() async {
     if (!_formKey.currentState!.validate()) return;
     if (!_consentement) {
@@ -1192,12 +1231,32 @@ class _ProfilFormState extends State<_ProfilForm> {
     // Appel fire-and-forget : une erreur réseau ici ne bloque pas la création
     // du profil (le consentement sera tenté à nouveau à la prochaine occasion).
     // La version '1.0' correspond à la politique de confidentialité initiale.
+    // [Mission E] Passer la valeur réelle de consentementGeoloc au lieu de false codé en dur.
     unawaited(SupabaseService.enregistrerConsentement(
       userId: userId,
       consentementSante: _consentement,
-      consentementGeoloc: false, // Géolocalisation non implémentée pour l'instant
+      consentementGeoloc: _consentementGeoloc,
       versionPolitique: '1.0',
     ));
+
+    // [Mission E] Demander la permission système de géolocalisation si l'utilisateur
+    // a coché la case. Fire-and-forget : ne bloque PAS la création du profil ni la
+    // navigation vers /home. L'erreur est silencieuse — le refus est géré dans
+    // CarteStructuresScreen au moment de l'affichage de la carte.
+    if (_consentementGeoloc) {
+      unawaited(() async {
+        try {
+          final serviceActif = await Geolocator.isLocationServiceEnabled();
+          if (!serviceActif) return;
+          final permission = await Geolocator.checkPermission();
+          if (permission == LocationPermission.denied) {
+            await Geolocator.requestPermission();
+          }
+        } catch (_) {
+          // Erreur silencieuse — le refus sera géré dans CarteStructuresScreen
+        }
+      }());
+    }
 
     // GoRouter redirect voit isAuthenticated=true + profil!=null → navigue vers /home
     // L'appel explicite à context.go('/home') est maintenu comme fallback de sécurité
