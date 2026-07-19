@@ -1,0 +1,54 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "framework": null,
+  "buildCommand": "npm run build",
+  "functions": {
+    "api/bff/auth/[action].ts": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 30
+    },
+    "api/bff/proxy.ts": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 30
+    },
+    "api/bff/health.ts": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 10
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/bff/auth/:action",
+      "destination": "/api/bff/auth/:action"
+    },
+    {
+      "source": "/bff/api/:path*",
+      "destination": "/api/bff/proxy?_target=api&_path=:path*"
+    },
+    {
+      "source": "/bff/functions/:path*",
+      "destination": "/api/bff/proxy?_target=functions&_path=:path*"
+    },
+    {
+      "source": "/bff/health",
+      "destination": "/api/bff/health"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    }
+  ],
+  "env": {
+    "ALLOWED_ORIGIN": "https://songre.bf",
+    "SESSION_TTL_SECONDS": "86400",
+    "ENVIRONMENT": "production",
+    "NODE_ENV": "production"
+  }
+}

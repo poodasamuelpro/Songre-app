@@ -1,0 +1,25 @@
+{
+  "name": "songre-bff-vercel",
+  "version": "1.0.0",
+  "description": "SONGRE Backend For Frontend — Vercel Serverless Functions",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev --listen 8788",
+    "build": "tsc --noEmit",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.28.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "@vercel/node": "^3.0.21",
+    "typescript": "^5.3.3",
+    "vercel": "^33.7.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,60 @@
+# =============================================================================
+# wrangler.toml — Configuration Cloudflare Workers BFF SONGRE
+#
+# SECRETS (à injecter via CLI — jamais en dur ici) :
+#   wrangler secret put SUPABASE_URL
+#   wrangler secret put SUPABASE_ANON_KEY
+#   wrangler secret put SESSION_SECRET       (32 bytes hex aléatoire)
+#   wrangler secret put CSRF_SECRET          (32 bytes hex aléatoire)
+#
+# VARIABLES PUBLIQUES (non sensibles — lisibles dans ce fichier) :
+#   ALLOWED_ORIGIN, SESSION_TTL_SECONDS
+#
+# KV NAMESPACE (créer d'abord via CLI) :
+#   wrangler kv:namespace create "SESSIONS"
+#   → Copier l'id retourné dans kv_namespaces ci-dessous
+# =============================================================================
+
+name = "songre-bff"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# ── Variables d'environnement (non sensibles) ─────────────────────────────────
+[vars]
+# Origine autorisée pour CORS — à mettre à jour avec votre domaine réel
+ALLOWED_ORIGIN = "https://songre.bf"
+# TTL des sessions en secondes (1 heure = 3600)
+SESSION_TTL_SECONDS = "3600"
+# Environnement (development | production)
+ENVIRONMENT = "production"
+
+# ── KV Namespace pour le stockage des sessions ────────────────────────────────
+# Après avoir créé le namespace via `wrangler kv:namespace create "SESSIONS"`,
+# remplacer "VOTRE_KV_NAMESPACE_ID" par l'ID retourné.
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "VOTRE_KV_NAMESPACE_ID"
+# Pour le développement local, un namespace preview peut être utilisé :
+# preview_id = "VOTRE_KV_NAMESPACE_PREVIEW_ID"
+
+# ── Rate Limiting (Cloudflare Workers Rate Limiting API) ──────────────────────
+[[unsafe.bindings]]
+type = "ratelimit"
+name = "AUTH_RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 5, period = 60 }
+
+# ── Routes déployées ──────────────────────────────────────────────────────────
+# Le Worker gère toutes les routes /bff/*
+# Le reste (app Flutter Web) est servi par Cloudflare Pages
+[routes]
+pattern = "songre.bf/bff/*"
+zone_name = "songre.bf"
+
+# ── Environnement de développement local ─────────────────────────────────────
+[env.development]
+[env.development.vars]
+ALLOWED_ORIGIN = "http://localhost:5060"
+ENVIRONMENT = "development"
+SESSION_TTL_SECONDS = "3600"

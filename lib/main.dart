@@ -6,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'theme/sauve_theme.dart';
 import 'services/app_state.dart';
+import 'responsive/breakpoints.dart';
 import 'router.dart';
 
 void main() async {
@@ -82,18 +83,34 @@ class _SauveAppState extends State<SauveApp> {
         );
 
         if (kIsWeb) {
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 430),
-              child: Container(
+          // Responsive Web : layout adaptatif selon la largeur d'écran.
+          // Mobile web (<600px)  → colonne centrée max 430px (UX mobile)
+          // Tablet web (600–1024)→ contenu centré max 800px avec marges
+          // Desktop web (>1024px)→ contenu centré max 1200px (sidebar gérée par router)
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final screenSize = getScreenSize(context);
+              final double maxWidth = switch (screenSize) {
+                ScreenSize.mobile  => 430.0,
+                ScreenSize.tablet  => 800.0,
+                ScreenSize.desktop => SongreBreakpoints.contentMaxWidth,
+              };
+              return Container(
                 color: SauveColors.creme,
-                child: safeChild,
-              ),
-            ),
+                width: double.infinity,
+                height: double.infinity,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxWidth),
+                    child: safeChild,
+                  ),
+                ),
+              );
+            },
           );
         }
 
-        // Android / iOS : retour direct, pas de contrainte
+        // Android / iOS : retour direct, aucune contrainte de largeur
         return safeChild;
       },
     );

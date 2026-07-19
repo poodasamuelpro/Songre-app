@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../models/models.dart';
 import '../utils/crypto_service.dart';
 import '../utils/secure_storage_service.dart';
+import 'bff_client.dart';
 
 // =====================================================================
 // SERVICE SUPABASE — Production SONGRE
@@ -100,6 +101,11 @@ class SupabaseService {
     required String email,
     required String motDePasse,
   }) async {
+    // ── BFF Web mode ──────────────────────────────────────────────────
+    if (estBffActif) {
+      return BffClient.inscrire(email: email, motDePasse: motDePasse);
+    }
+    // ── Mode natif (Android / iOS) — inchangé ─────────────────────────
     if (!estConfigured) {
       return const AuthResult(
         success: false,
@@ -177,6 +183,20 @@ class SupabaseService {
     required String email,
     required String motDePasse,
   }) async {
+    // ── BFF Web mode ──────────────────────────────────────────────────
+    if (estBffActif) {
+      final result = await BffClient.connecter(email: email, motDePasse: motDePasse);
+      // En BFF mode, le userId est disponible mais les tokens restent dans
+      // le cookie HttpOnly — on stocke uniquement userId en mémoire.
+      if (result.success && result.userId != null) {
+        _currentUserId = result.userId;
+        // accessToken intentionnellement null en BFF mode (non transmis)
+        _accessToken = null;
+        _refreshToken = null;
+      }
+      return result;
+    }
+    // ── Mode natif (Android / iOS) — inchangé ─────────────────────────
     if (!estConfigured) {
       return const AuthResult(
         success: false,
@@ -225,6 +245,14 @@ class SupabaseService {
   /// Rafraîchissement du JWT avec le refresh_token.
   /// [1.3] Persiste automatiquement les nouveaux tokens dans SecureStorage.
   static Future<bool> rafraichirToken(String refreshToken) async {
+    // ── BFF Web mode ──────────────────────────────────────────────────
+    if (estBffActif) {
+      // En BFF mode, le refresh passe par le BFF qui détient le refresh_token.
+      // Le navigateur envoie automatiquement le cookie HttpOnly.
+      // Pas besoin de transmettre le refreshToken en clair.
+      return BffClient.rafraichirToken();
+    }
+    // ── Mode natif (Android / iOS) — inchangé ─────────────────────────
     if (!estConfigured) return false;
     try {
       final resp = await http.post(
@@ -270,6 +298,15 @@ class SupabaseService {
 
   /// Déconnexion — invalide la session côté serveur (POST /auth/v1/logout)
   static Future<void> deconnecter() async {
+    // ── BFF Web mode ──────────────────────────────────────────────────
+    if (estBffActif) {
+      await BffClient.deconnecter();
+      _accessToken = null;
+      _refreshToken = null;
+      _currentUserId = null;
+      return;
+    }
+    // ── Mode natif (Android / iOS) — inchangé ─────────────────────────
     if (!estConfigured || _accessToken == null) {
       _accessToken = null;
       _refreshToken = null;
@@ -299,6 +336,11 @@ class SupabaseService {
   /// Supabase retourne 200 même si l'email n'existe pas (sécurité anti-enum).
   static Future<ResetPasswordResult> envoyerEmailReinitialisation(
       String email) async {
+    // ── BFF Web mode ──────────────────────────────────────────────────
+    if (estBffActif) {
+      return BffClient.envoyerEmailReinitialisation(email);
+    }
+    // ── Mode natif (Android / iOS) — inchangé ─────────────────────────
     if (!estConfigured) {
       return const ResetPasswordResult(
         success: false,

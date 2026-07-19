@@ -1,0 +1,20 @@
+{
+  "name": "songre-bff-cloudflare",
+  "version": "1.0.0",
+  "description": "BFF sécurisé SONGRE — Cloudflare Workers (TypeScript)",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src/**/*.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241004.0",
+    "typescript": "^5.5.4",
+    "wrangler": "^3.80.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0"
+  },
+  "private": true
+}
