@@ -86,4 +86,3 @@ bff-vercel/node_modules/
 bff-vercel/package-lock.json
 
 # Flutter Web build output (32MB — trop lourd pour Git, déployer via CI/CD)
-web-app/
