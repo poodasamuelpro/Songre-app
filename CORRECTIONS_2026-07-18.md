@@ -137,13 +137,13 @@ if (state.userId != null && state.userId == demande.auteurId)
 ```makefile
 # Avant
 flutter build apk --release \
-    --dart-define=SONGRE_ENCRYPT_KEY=SongreProdBurkinaFaso2026_SecureKey! \
+    --dart-define=SONGRE_ENCRYPT_KEY=[REDACTED] \
     --dart-define=flutter.inspector.structuredErrors=false \
     --dart-define=debugShowCheckedModeBanner=false
 
 # Après
 flutter build apk --release \
-    --dart-define=SONGRE_ENCRYPT_KEY=SongreProdBurkinaFaso2026_SecureKey! \
+    --dart-define=SONGRE_ENCRYPT_KEY=[REDACTED] \
     --dart-define=WEBHOOK_SECRET=$$WEBHOOK_SECRET \     # ← AJOUTÉ
     --dart-define=flutter.inspector.structuredErrors=false \
     --dart-define=debugShowCheckedModeBanner=false
@@ -457,7 +457,7 @@ No issues found! (ran in 5.8s)
 ### Build APK
 ```
 flutter build apk --release \
-  --dart-define=SONGRE_ENCRYPT_KEY=SongreProdBurkinaFaso2026_SecureKey! \
+  --dart-define=SONGRE_ENCRYPT_KEY=[REDACTED] \
   --dart-define=WEBHOOK_SECRET=*** \
   ...
 

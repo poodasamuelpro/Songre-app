@@ -8,22 +8,24 @@ import 'package:flutter/foundation.dart';
 // Conforme à la section 7.2 du cahier des charges :
 // "Chiffrement applicatif supplémentaire (AES-256) sur les champs sensibles"
 //
-// PRODUCTION : la clé est injectée via dart-define (prioritaire) :
-//   --dart-define=SONGRE_ENCRYPT_KEY=<minimum_32_caracteres>
+// PRODUCTION : la clé DOIT être injectée via --dart-define :
+//   --dart-define=SONGRE_ENCRYPT_KEY=<valeur_exacte_de_production>
 //
-// Si SONGRE_ENCRYPT_KEY n'est pas fourni au build, la clé de production
-// historique est utilisée comme fallback implicite.
+// Sans cette variable au build, le chiffrement est désactivé (dégradation
+// gracieuse — l'app démarre et fonctionne, mais les contacts téléphoniques
+// chiffrés en BDD s'affichent comme "Contact indisponible").
 //
 // CORRECTION ÉCRAN NOIR (SEC-01 revisited) :
 // L'ancienne implémentation levait un StateError si la clé était absente,
-// crashant l'app avant runApp (écran noir permanent sur appareil réel).
-// La clé de production historique (SongreProdBurkinaFaso2026_SecureKey!)
-// est celle avec laquelle les données en BDD ont été chiffrées — son
-// absence dans le build rendait le déchiffrement impossible ET crashait
-// l'app. Elle est désormais embarquée comme defaultValue pour garantir :
-// 1. Le démarrage de l'app même sans --dart-define
-// 2. La compatibilité avec les données chiffrées existantes en BDD
-// 3. La possibilité de rotation future via --dart-define
+// crashant l'app avant runApp. Ce crash est résolu par la dégradation
+// gracieuse dans init() : si _envKey est vide ou < 32 chars, _key reste null
+// et chiffrer()/dechiffrer() retournent null sans jamais lever d'exception.
+// Testé : build sans --dart-define=SONGRE_ENCRYPT_KEY → APK démarre normalement.
+//
+// La valeur de production est conservée dans SECRETS_PROJET_A_SAUVEGARDER.md
+// (dépôt privé) et doit être fournie via variable d'environnement shell :
+//   export SONGRE_ENCRYPT_KEY="<valeur>"
+//   make apk
 //
 // Format du chiffré : base64(IV_16B) + ":" + base64(ciphertext)
 // IV généré aléatoirement par opération (pas de réutilisation).
@@ -31,13 +33,11 @@ import 'package:flutter/foundation.dart';
 class CryptoService {
   CryptoService._();
 
-  // Clé injectée par --dart-define=SONGRE_ENCRYPT_KEY (prioritaire).
-  // Fallback : clé de production historique utilisée pour les données en BDD.
-  // Cette valeur garantit la compatibilité des données chiffrées existantes
-  // ET évite le crash au démarrage si --dart-define est absent.
+  // Clé injectée exclusivement par --dart-define=SONGRE_ENCRYPT_KEY.
+  // Aucun defaultValue : la clé de production ne doit pas être embarquée
+  // dans le binaire. Sans --dart-define, _envKey = '' → dégradation gracieuse.
   static const String _envKey = String.fromEnvironment(
     'SONGRE_ENCRYPT_KEY',
-    defaultValue: 'SongreProdBurkinaFaso2026_SecureKey!',
   );
 
   static enc.Key? _key;

@@ -105,7 +105,7 @@ if (state.userId != null && state.userId == demande.auteurId)
 ### Première lecture (Makefile)
 ```makefile
 flutter build apk --release \
-    --dart-define=SONGRE_ENCRYPT_KEY=SongreProdBurkinaFaso2026_SecureKey! \
+    --dart-define=SONGRE_ENCRYPT_KEY=[REDACTED] \
     --dart-define=WEBHOOK_SECRET=$$WEBHOOK_SECRET \
     ...
 ```

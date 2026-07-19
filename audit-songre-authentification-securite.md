@@ -760,7 +760,7 @@ CREATE TABLE IF NOT EXISTS public.identites (
 ```dart
 // AES-256-CBC, IV aléatoire 16 bytes
 // Format : base64(IV_16B) + ":" + base64(ciphertext)
-// Clé : --dart-define=SONGRE_ENCRYPT_KEY ou fallback 'SongreProdBurkinaFaso2026_SecureKey!'
+// Clé : --dart-define=SONGRE_ENCRYPT_KEY ou fallback '[REDACTED]'
 ```
 
 Même algorithme à utiliser pour `telephone_chiffre`.
@@ -947,7 +947,7 @@ class HistoriqueEvent {
 **Fichier :** `lib/utils/crypto_service.dart` — lignes 34-35
 
 ```dart
-static const String _fallbackKey = 'SongreProdBurkinaFaso2026_SecureKey!';
+static const String _fallbackKey = '[REDACTED]';
 ```
 
 **Impact :** La clé AES-256 utilisée pour chiffrer les données médicales (poids, contre-indications) et les contacts est hardcodée dans le code source versionné. Tout développeur avec accès au dépôt (ou tout attaquant ayant décompilé l'APK) peut déchiffrer **toutes les données chiffrées** de tous les utilisateurs si la base est compromise.
@@ -1185,7 +1185,7 @@ const prenom = data["prenom"] ?? "Donneur"; // Fallback si absent
 
 4. **S8 — `telephone_hash` en base :** Existe-t-il vraiment une colonne `telephone_hash` dans `public.identites` (créée manuellement), ou est-elle uniquement dans l'ancien schéma `sante.*` ? Vérifier : `SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='identites';`
 
-5. **SEC-01 — Rotation de la clé de chiffrement :** Si la `_fallbackKey` hardcodée est supprimée et remplacée par une vraie clé produite aléatoirement, toutes les données chiffrées avec l'ancienne clé (`SongreProdBurkinaFaso2026_SecureKey!`) seront illisibles. Une migration des données en base (déchiffrement avec l'ancienne clé + rechiffrement avec la nouvelle) est nécessaire avant ce changement. Confirmer si des données chiffrées existent déjà en base.
+5. **SEC-01 — Rotation de la clé de chiffrement :** Si la `_fallbackKey` hardcodée est supprimée et remplacée par une vraie clé produite aléatoirement, toutes les données chiffrées avec l'ancienne clé (`[REDACTED]`) seront illisibles. Une migration des données en base (déchiffrement avec l'ancienne clé + rechiffrement avec la nouvelle) est nécessaire avant ce changement. Confirmer si des données chiffrées existent déjà en base.
 
 6. **FUNC-02 — Webhook Mode A actif :** Le webhook `UPDATE auth.users → mdp-modifie-auth` est-il réellement configuré dans Supabase Dashboard (Database → Webhooks) ? Si non, Mode A est mort code et seul le Mode B (appel Flutter explicite) fonctionne.
 

@@ -17,7 +17,7 @@
 // Extrait exact, lignes 38–41 :
 static const String _envKey = String.fromEnvironment(
   'SONGRE_ENCRYPT_KEY',
-  defaultValue: 'SongreProdBurkinaFaso2026_SecureKey!',
+  defaultValue: '[REDACTED]',
 );
 ```
 
@@ -28,11 +28,11 @@ Le commentaire actuel dans `crypto_service.dart` explique pourquoi le `defaultVa
 2. La compatibilité avec les données chiffrées existantes en BDD
 3. La possibilité de rotation future via `--dart-define`
 
-**Conséquence sécurité réelle :** La clé `SongreProdBurkinaFaso2026_SecureKey!` est compilée dans le binaire Flutter comme constante. Elle est **visible par décompilation de l'APK** (JADX, apktool) en quelques minutes.
+**Conséquence sécurité réelle :** La clé `[REDACTED]` est compilée dans le binaire Flutter comme constante. Elle est **visible par décompilation de l'APK** (JADX, apktool) en quelques minutes.
 
 **Makefile ligne 24 :** la même clé est aussi passée en clair dans la commande `make apk` :
 ```makefile
---dart-define=SONGRE_ENCRYPT_KEY=SongreProdBurkinaFaso2026_SecureKey! \
+--dart-define=SONGRE_ENCRYPT_KEY=[REDACTED] \
 ```
 Ce qui signifie qu'elle figure également dans l'historique shell si quelqu'un exécute `history`, et dans les logs CI/CD si le build est tracé.
 
@@ -96,7 +96,7 @@ Remplacer les lignes 38–41 :
 // AVANT (clé embarquée — RISQUE)
 static const String _envKey = String.fromEnvironment(
   'SONGRE_ENCRYPT_KEY',
-  defaultValue: 'SongreProdBurkinaFaso2026_SecureKey!',
+  defaultValue: '[REDACTED]',
 );
 ```
 
@@ -126,7 +126,7 @@ if (_envKey.isEmpty || _envKey.length < 32) {
 
 ```makefile
 # AVANT (clé en clair — RISQUE SÉCURITÉ)
---dart-define=SONGRE_ENCRYPT_KEY=SongreProdBurkinaFaso2026_SecureKey! \
+--dart-define=SONGRE_ENCRYPT_KEY=[REDACTED] \
 
 # APRÈS (variable d'environnement — identique à WEBHOOK_SECRET ligne 25)
 --dart-define=SONGRE_ENCRYPT_KEY=$$SONGRE_ENCRYPT_KEY \
@@ -147,7 +147,7 @@ import json
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
-ANCIENNE_CLE = b'SongreProdBurkinaFaso2026_SecureKey!'[:32]  # 32 premiers octets
+ANCIENNE_CLE = b'[REDACTED]'[:32]  # 32 premiers octets
 NOUVELLE_CLE = bytes.fromhex(os.environ['SONGRE_ENCRYPT_KEY_NEW'])[:32]
 
 def dechiffrer(valeur_chiffree: str, cle: bytes) -> str | None:

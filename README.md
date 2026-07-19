@@ -288,6 +288,39 @@ Formulaire de contact vers l'équipe SONGRE :
 
 ---
 
+### Écran 14 — Carte des structures sanitaires (`carte_structures_screen.dart`)
+
+**Route :** `/carte-structures` (slide depuis le bas · `extra: StructureSanitaire?`)  
+**Ajouté en session 5**
+
+Accessible depuis le bouton « Voir sur la carte » de `detail_demande_screen.dart`. Deux modes selon la valeur de `mode_carte` dans la table `public.app_config` (lu dynamiquement, timeout 8 s, défaut `'externe'`).
+
+**Option B — Mode externe (défaut, `mode_carte = 'externe'`) :**
+- Ouvre l'application de cartes native via `url_launcher` (schéma `geo:lat,lng?q=nom_structure` avec fallback URL Google Maps).
+- Aucune permission système requise.
+- Écran informatif affiché pendant l'ouverture de l'app Maps externe.
+
+**Option A — Carte intégrée (`mode_carte = 'integree'`) :**
+- Carte `flutter_map` (OpenStreetMap, sans clé API).
+- Marqueurs : structures sanitaires géolocalisées (rouge), position utilisateur (point bleu).
+- Tap sur marqueur → fiche structure avec bouton Maps externe.
+- Gestion complète des états de permission géolocalisation :
+  - **Accordée** : position réelle, zoom 14.5.
+  - **Refusée (denied)** : demande silencieuse si consentement profil accordé, sinon ville du profil.
+  - **Refus définitif (deniedForever)** : bandeau info + fallback ville du profil.
+  - **Service désactivé** : bandeau info + fallback ville du profil.
+- Si aucune ville géolocalisée dans la base → Ouagadougou par défaut (12.3647, -1.5337).
+
+**Prérequis base de données :** Colonnes `latitude DOUBLE PRECISION` et `longitude DOUBLE PRECISION` (nullable) sur `public.villes` et `public.structures_sanitaires` + table `public.app_config`. Voir `MODIFICATIONS_MANUELLES_CARTE.sql`.
+
+**Permissions Android** (ajoutées dans `AndroidManifest.xml`) :
+```xml
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+```
+
+---
+
 ## 3. Logique métier et règles importantes
 
 ### 3.1 Compatibilité des groupes sanguins
@@ -347,9 +380,11 @@ Si `count >= 3` → retour immédiat avec message d'erreur explicite, sans appel
 
 **Format chiffré :** `base64(IV_16B) + ":" + base64(ciphertext)`  
 **IV :** Généré aléatoirement par opération (jamais réutilisé).  
-**Clé :** Injectée via `--dart-define=SONGRE_ENCRYPT_KEY=<min 32 chars>`. Fallback: clé de production historique `SongreProdBurkinaFaso2026_SecureKey!` embarquée dans le binaire comme `defaultValue`.
+**Clé :** Injectée exclusivement via `--dart-define=SONGRE_ENCRYPT_KEY=<min 32 chars>`. Aucun `defaultValue` embarqué dans le binaire — dégradation gracieuse si absente au build (chiffrement désactivé, app démarre normalement).
 
-> **IMPORTANT :** La clé `defaultValue` garantit la compatibilité des données existantes en base mais est embarquée dans le binaire APK. Pour une rotation de clé, les données en base doivent être rechiffrées avec la nouvelle clé avant de déployer un build avec `--dart-define` différent.
+> **IMPORTANT :** Si la clé est absente au build (variable shell non exportée), `CryptoService.init()` retourne sans exception et les méthodes `chiffrer()`/`dechiffrer()` retournent `null`. L'application fonctionne mais les numéros de téléphone en base (chiffrés) s'afficheront comme « Contact indisponible ». Toujours exporter `SONGRE_ENCRYPT_KEY` avant `make apk` en production.
+
+> **Rotation de clé :** Si la clé change, toutes les données en base doivent être rechiffrées avec la nouvelle clé avant de déployer un build avec `--dart-define` différent.
 
 ### 3.5 Visibilité conditionnelle du contact du donneur (P2)
 
@@ -460,6 +495,9 @@ Cela garantit un affichage instantané même sans réseau, avec mise à jour sil
 | Scan QR | mobile_scanner | ^5.2.3 |
 | Génération QR | qr_flutter | ^4.1.0 |
 | Liens externes | url_launcher | ^6.3.2 |
+| Carte intégrée | flutter_map | ^7.0.2 |
+| Coordonnées géo | latlong2 | ^0.9.1 |
+| Géolocalisation | geolocator | ^13.0.2 |
 
 ### 4.2 Structure des dossiers
 
@@ -489,7 +527,7 @@ flutter_app/
 │   │   ├── crypto_service.dart     # AES-256-CBC : init(), chiffrer(), dechiffrer()
 │   │   └── secure_storage_service.dart # flutter_secure_storage : userId, accessToken,
 │   │                                    # refreshToken (per-key try/catch)
-│   ├── screens/                    # 13 écrans (voir section 2)
+│   ├── screens/                    # 14 écrans (voir section 2)
 │   ├── widgets/
 │   │   ├── demande_card.dart       # Carte de demande réutilisable (accueil + liste)
 │   │   └── web_security_banner.dart # Bannière avertissement sécurité Web (SEC-02)
@@ -533,8 +571,9 @@ flutter_app/
 | `public.historique_dons` | Dons confirmés : donneur_id, demande_id, date_don, source (`qr_valide`/`declaratif`) |
 | `public.notifications_envoyees` | Notifications envoyées : user_id, demande_id, type, lu |
 | `public.dons_qr_tokens` | Tokens QR pour confirmation don : token (PK), donneur_id, demande_id, expires_at, used_at |
-| `public.villes` | Référentiel villes Burkina Faso |
-| `public.structures_sanitaires` | Référentiel hôpitaux/centres de santé |
+| `public.villes` | Référentiel villes Burkina Faso — colonnes `latitude`, `longitude` (nullable) |
+| `public.structures_sanitaires` | Référentiel hôpitaux/centres de santé — colonnes `latitude`, `longitude` (nullable) |
+| `public.app_config` | Configuration dynamique de l'application : `mode_carte` = `'externe'` \| `'integree'` |
 | `public.liens_externes` | Liens dynamiques affichés dans Paramètres |
 | `public.identites` | Gestion suppression de compte : compte_actif, date_suppression |
 | `public.contact_spam_log` | Anti-spam formulaire contact support |
@@ -567,13 +606,13 @@ flutter_app/
 
 ## 5. Points de vigilance et sécurité
 
-### 5.1 Clé de chiffrement AES-256 embarquée dans le binaire
+### 5.1 Clé de chiffrement AES-256 — injection via `--dart-define` (session 6)
 
-**Problème :** La clé `SongreProdBurkinaFaso2026_SecureKey!` est embarquée comme `defaultValue` dans `CryptoService`. Elle est visible par décompilation de l'APK.
+**Correction session 6 :** Le `defaultValue` hardcodé dans `CryptoService` a été supprimé. La clé n'est plus embarquée dans le binaire APK.
 
-**Pourquoi c'est acceptable pour l'instant :** Cette clé chiffre les contacts pour empêcher un accès direct à la base de données Supabase (script, injection). Elle n'est pas un secret de session utilisateur.
+**Dégradation gracieuse :** Si `SONGRE_ENCRYPT_KEY` n'est pas injectée au build, `CryptoService.init()` retourne sans erreur (`_key` reste `null`), les méthodes `chiffrer()`/`dechiffrer()` retournent `null`. Aucun crash. Testé : APK sans clé → démarre normalement (73.7 MB).
 
-**Pour une sécurité renforcée :** Utiliser toujours `--dart-define=SONGRE_ENCRYPT_KEY=<nouvelle_clé>` lors des builds de production. Si la clé change, toutes les données en base doivent être rechiffrées.
+**Pour les builds de production :** Toujours exporter `SONGRE_ENCRYPT_KEY` avant `make apk`. La valeur est conservée dans `SECRETS_PROJET_A_SAUVEGARDER.md` (dépôt privé).
 
 ### 5.2 Stockage tokens sur Web (SEC-02)
 
@@ -629,18 +668,20 @@ Avant d'exécuter `make apk`, les variables d'environnement suivantes **doivent 
 | Variable | Rôle | Obligatoire |
 |---|---|---|
 | `WEBHOOK_SECRET` | Secret partagé entre le client Flutter et l'Edge Function `valider-token` — injecté via `--dart-define`. Doit correspondre exactement à la valeur configurée dans Supabase Dashboard → Edge Functions → Environment Variables. | **Oui** |
+| `SONGRE_ENCRYPT_KEY` | Clé AES-256 pour le chiffrement des contacts téléphoniques (min 32 caractères). Injectée via `--dart-define`. Si absente, l'app démarre mais le chiffrement est désactivé (dégradation gracieuse). La valeur de production est dans `SECRETS_PROJET_A_SAUVEGARDER.md`. | **Production uniquement** |
 
 ```bash
-# Exemple de configuration avant build (ne jamais committer cette valeur en dur)
+# Exemple de configuration avant build (ne jamais committer ces valeurs en dur)
 export WEBHOOK_SECRET="votre_secret_ici"
+export SONGRE_ENCRYPT_KEY="votre_cle_aes_ici"
 
 # Puis lancer le build
 make apk
 ```
 
-> **IMPORTANT :** Si `WEBHOOK_SECRET` n'est pas défini, le build s'exécute mais le secret sera une chaîne vide, ce qui rendra la validation QR (`valider-token`) systématiquement rejetée en production. Toujours vérifier que la variable est exportée avant de lancer `make apk`.
+> **IMPORTANT :** Si `WEBHOOK_SECRET` n'est pas défini, le build s'exécute mais le secret sera une chaîne vide, ce qui rendra la validation QR (`valider-token`) systématiquement rejetée en production. Si `SONGRE_ENCRYPT_KEY` n'est pas défini, l'app démarre mais le chiffrement est désactivé (dégradation gracieuse — contacts affichés comme « indisponibles »). Toujours vérifier que les deux variables sont exportées avant de lancer `make apk` en production.
 
-> **Sécurité :** Ne jamais écrire la valeur de `WEBHOOK_SECRET` en dur dans `Makefile`, dans le code Flutter, ni dans un fichier versionné. La valeur est injectée à la compilation via `--dart-define` et n'est pas stockée dans le dépôt git.
+> **Sécurité :** Ne jamais écrire les valeurs de `WEBHOOK_SECRET` ou `SONGRE_ENCRYPT_KEY` en dur dans `Makefile`, dans le code Flutter, ni dans un fichier versionné. Les valeurs sont injectées à la compilation via `--dart-define` et conservées dans `SECRETS_PROJET_A_SAUVEGARDER.md` (dépôt privé).
 
 ---
 
@@ -657,11 +698,15 @@ flutter pub get
 # Lancer en debug (web)
 flutter run -d chrome
 
-# Build APK release (WEBHOOK_SECRET doit être exporté au préalable)
+# Build APK release (les deux variables doivent être exportées au préalable)
 export WEBHOOK_SECRET="votre_secret_ici"
+export SONGRE_ENCRYPT_KEY="votre_cle_aes_ici"  # Voir SECRETS_PROJET_A_SAUVEGARDER.md
+# Recommandé : utiliser le Makefile qui injecte automatiquement les deux variables :
+make apk
+# Ou manuellement :
 flutter build apk --release \
-  --dart-define=SONGRE_ENCRYPT_KEY=SongreProdBurkinaFaso2026_SecureKey! \
-  --dart-define=WEBHOOK_SECRET=$WEBHOOK_SECRET
+  --dart-define=SONGRE_ENCRYPT_KEY=$$SONGRE_ENCRYPT_KEY \
+  --dart-define=WEBHOOK_SECRET=$$WEBHOOK_SECRET
 ```
 
 ### Comment configurer les variables Supabase ?

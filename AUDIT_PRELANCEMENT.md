@@ -136,7 +136,7 @@
 |-------------|-----------------|--------|------------------------------|--------|--------|
 | `_kSupabaseUrlProd` = `https://ptomqwucvveuflfnyczo.supabase.co` | `supabase_service.dart` L24-25 | URL projet Supabase | ✅ Oui (endpoint public) | Faible — URL prévisible, pas un secret | Acceptable |
 | `_kAnonKeyProd` (JWT anon signé) | `supabase_service.dart` L27-29 | Clé anonyme Supabase | ✅ Oui (conçu pour être public) | Faible — rôle limité, RLS protège les données | Acceptable |
-| `SONGRE_ENCRYPT_KEY` defaultValue `'SongreProdBurkinaFaso2026_SecureKey!'` | `crypto_service.dart` (defaultValue hardcodé) | Clé AES-256-CBC symétrique | ⚠️ Non — devrait être injectée uniquement via `--dart-define` | **Critique** — clé de déchiffrement des contacts dans l'APK | **P1 BLOQUANT** |
+| `SONGRE_ENCRYPT_KEY` defaultValue `'[REDACTED]'` | `crypto_service.dart` (defaultValue hardcodé) | Clé AES-256-CBC symétrique | ⚠️ Non — devrait être injectée uniquement via `--dart-define` | **Critique** — clé de déchiffrement des contacts dans l'APK | **P1 BLOQUANT** |
 | `WEBHOOK_SECRET` (sans defaultValue) | `supabase_service.dart` L53-55 | Secret partagé Flutter → EF `valider-token` | ✅ Oui (nécessaire pour valider-token) | Élevé si absent au build (QR inopérant) | **P2 BLOQUANT** |
 | `AIzaSyCYoh65TZC5jfb9WEQGszLa6wK16pJupCI` (`current_key`) | `android/app/google-services.json` | Clé API Firebase (Android Restricted) | ✅ Oui (intégration FCM Android) | Faible si correctement restreinte côté Firebase Console | **P-FCM-KEY** : vérifier restrictions |
 | Package name `com.songre.app` | `build.gradle.kts`, `google-services.json`, `AndroidManifest.xml` | Identifiant Android | ✅ Oui | Cohérent avec l'identité SONGRE | **P11 RÉSOLU** |
@@ -274,7 +274,7 @@ Si l'unicité n'est pas contrainte sur `(user_id, timestamp/window)` mais sur `u
 ```dart
 static const String _encryptionKey = String.fromEnvironment(
   'SONGRE_ENCRYPT_KEY',
-  defaultValue: 'SongreProdBurkinaFaso2026_SecureKey!',
+  defaultValue: '[REDACTED]',
 );
 ```
 
@@ -663,7 +663,7 @@ debugShowCheckedModeBanner: false,
 ### 🔴 BLOQUANTS — À corriger avant toute publication
 
 #### P1 — Clé AES hardcodée dans l'APK
-- **Fichier** : `lib/utils/crypto_service.dart` — `defaultValue: 'SongreProdBurkinaFaso2026_SecureKey!'`
+- **Fichier** : `lib/utils/crypto_service.dart` — `defaultValue: '[REDACTED]'`
 - **Correction** : Compiler avec `--dart-define=SONGRE_ENCRYPT_KEY=<clé_secrète>` sans defaultValue. Si une version APK a déjà été distribuée avec cette clé, régénérer la clé ET rechiffrer toutes les données en base.
 
 #### P2 — WEBHOOK_SECRET absent au build → tous les scans QR échouent
