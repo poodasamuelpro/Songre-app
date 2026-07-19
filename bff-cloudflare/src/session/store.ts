@@ -171,7 +171,7 @@ export function buildSessionCookie(
   isProd: boolean,
 ): string {
   const parts = [
-    `songre_session=${cookieValue}`,
+    `bff_session=${cookieValue}`,
     'HttpOnly',                          // Inaccessible depuis JavaScript
     ...(isProd ? ['Secure'] : []),       // HTTPS uniquement en prod
     'SameSite=Strict',                   // Protection CSRF renforcée
@@ -184,7 +184,7 @@ export function buildSessionCookie(
 /** Cookie de déconnexion (expire immédiatement) */
 export function buildLogoutCookie(isProd: boolean): string {
   return [
-    'songre_session=',
+    'bff_session=',
     'HttpOnly',
     ...(isProd ? ['Secure'] : []),
     'SameSite=Strict',
@@ -202,12 +202,35 @@ export function buildCsrfCookie(
   // Note : PAS HttpOnly — l'app Flutter Web doit pouvoir lire ce cookie
   // pour l'insérer dans le header X-CSRF-Token
   return [
-    `songre_csrf=${csrfToken}`,
+    `bff_csrf=${csrfToken}`,
     ...(isProd ? ['Secure'] : []),
     'SameSite=Strict',
     `Max-Age=${ttlSeconds}`,
     'Path=/',
   ].join('; ');
+}
+
+// ── Helpers publics ────────────────────────────────────────────────────────────
+
+/**
+ * Extrait la valeur d'un cookie nommé depuis l'en-tête Cookie.
+ * Exporté pour être réutilisé dans tous les handlers sans duplication.
+ */
+export function extractCookie(
+  cookieHeader: string,
+  name: string,
+): string | null {
+  if (!cookieHeader) return null;
+  const cookies = cookieHeader.split(';');
+  for (const cookie of cookies) {
+    const trimmed = cookie.trim();
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const value = trimmed.slice(eqIdx + 1).trim();
+    if (key === name) return value || null;
+  }
+  return null;
 }
 
 // ── Helpers crypto ─────────────────────────────────────────────────────────────

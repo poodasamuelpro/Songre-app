@@ -1,19 +1,21 @@
+// =============================================================================
 // bff-cloudflare/src/proxy/supabase.ts
-// Proxy authentifié vers Supabase — toutes les requêtes données
+// Proxy authentifié vers Supabase — requêtes données et Edge Functions
 //
 // Routes couvertes :
-//   ANY /bff/api/*        → proxy vers /rest/v1/* (PostgREST API)
-//   ANY /bff/functions/*  → proxy vers /functions/v1/* (Edge Functions)
+//   ANY /bff/api/*        → proxy vers Supabase /rest/v1/* (PostgREST)
+//   ANY /bff/functions/*  → proxy vers Supabase /functions/v1/* (Edge Funcs)
 //
-// Flux :
-//   1. Lire cookie session (HttpOnly)
-//   2. Récupérer access_token depuis KV
+// Flux de sécurité :
+//   1. Lire cookie bff_session (HttpOnly — opaque pour le navigateur)
+//   2. Valider la signature HMAC du cookie et récupérer la session depuis KV
 //   3. Vérifier CSRF pour les méthodes mutantes (POST/PATCH/PUT/DELETE)
-//   4. Transmettre la requête à Supabase avec le token Bearer
-//   5. Retransmettre la réponse Supabase au client SANS exposer le token
+//   4. Transmettre la requête à Supabase avec Bearer token (jamais exposé)
+//   5. Retransmettre uniquement la réponse de données (pas les cookies Supabase)
 //
-// Ce proxy garantit que le token Supabase ne transite JAMAIS via le
-// navigateur — seule la réponse de données (JSON) est transmise.
+// Garantie : le token Supabase ne transite JAMAIS dans le navigateur —
+// il est injecté exclusivement côté serveur (Cloudflare Workers).
+// =============================================================================
 
 import { Env } from '../types.js';
 import {
@@ -22,9 +24,10 @@ import {
   applySecurityHeaders,
 } from '../security/headers.js';
 import { requiresCsrfProtection, verifyCsrfToken } from '../security/csrf.js';
-import { getSession } from '../session/store.js';
+import { getSession, extractCookie } from '../session/store.js';
 
-// Headers à NE PAS transmettre vers Supabase (sécurité, réduction surface)
+// Headers entrants à ne PAS transmettre vers Supabase
+// (informations infrastructure CF, cookie HttpOnly, host origin)
 const STRIP_REQUEST_HEADERS = new Set([
   'cookie',
   'host',
@@ -35,26 +38,28 @@ const STRIP_REQUEST_HEADERS = new Set([
   'cf-visitor',
   'x-forwarded-for',
   'x-forwarded-proto',
+  'x-csrf-token', // Header BFF — ne doit pas atteindre Supabase
 ]);
 
-// Headers Supabase à NE PAS retransmettre vers le client
+// Headers Supabase à ne PAS retransmettre vers le client
+// (évite de révéler des informations d'infrastructure ou de surcharger HSTS)
 const STRIP_RESPONSE_HEADERS = new Set([
-  'set-cookie',
-  'strict-transport-security', // ajouté par le BFF lui-même
+  'set-cookie',               // Jamais de cookie Supabase vers le browser
+  'strict-transport-security', // Le BFF le réinjecte lui-même
 ]);
 
 export async function handleProxy(
   request: Request,
   env: Env,
-  pathSuffix: string, // ce qui vient après /bff/api/ ou /bff/functions/
+  pathSuffix: string,       // Segment après /bff/api/ ou /bff/functions/
   targetBase: 'api' | 'functions',
 ): Promise<Response> {
-  // ── OPTIONS preflight ─────────────────────────────────────────────
+  // ── OPTIONS preflight ─────────────────────────────────────────────────────
   if (request.method === 'OPTIONS') {
     return preflightResponse(env.ALLOWED_ORIGIN);
   }
 
-  // ── Extraction + validation cookie session ────────────────────────
+  // ── Extraction cookie session ─────────────────────────────────────────────
   const cookieHeader = request.headers.get('Cookie') ?? '';
   const signedSessionValue = extractCookie(cookieHeader, 'bff_session');
 
@@ -66,14 +71,11 @@ export async function handleProxy(
     );
   }
 
-  // ── Récupération session (tokens) depuis KV ───────────────────────
-  const sessionData = await getSession(
-    env.SESSIONS,
-    env.SESSION_SECRET,
-    signedSessionValue,
-  );
+  // ── Récupération session KV ───────────────────────────────────────────────
+  // getSession(env, signedValue) → { sessionId: string; data: SessionData } | null
+  const sessionResult = await getSession(env, signedSessionValue);
 
-  if (!sessionData) {
+  if (!sessionResult) {
     return jsonSecureResponse(
       env.ALLOWED_ORIGIN,
       { ok: false, error: 'Session invalide ou expirée. Reconnectez-vous.' },
@@ -81,15 +83,17 @@ export async function handleProxy(
     );
   }
 
-  // ── Vérification CSRF pour méthodes mutantes ──────────────────────
+  // Déstructuration explicite pour accès typé et lisible
+  const { sessionId, data: sessionData } = sessionResult;
+
+  // ── Vérification CSRF pour méthodes mutantes ──────────────────────────────
   if (requiresCsrfProtection(request.method)) {
     const csrfHeader = request.headers.get('X-CSRF-Token') ?? '';
-    const sessionId = signedSessionValue.split('.')[0];
 
     const csrfValid = await verifyCsrfToken(
       csrfHeader,
       env.CSRF_SECRET,
-      sessionId,
+      sessionId, // sessionId extrait de la session validée (pas du cookie brut)
     );
 
     if (!csrfValid) {
@@ -101,7 +105,7 @@ export async function handleProxy(
     }
   }
 
-  // ── Construction URL Supabase cible ───────────────────────────────
+  // ── Construction URL Supabase cible ───────────────────────────────────────
   const targetPath =
     targetBase === 'api'
       ? `/rest/v1/${pathSuffix}`
@@ -110,7 +114,7 @@ export async function handleProxy(
   const requestUrl = new URL(request.url);
   const targetUrl = `${env.SUPABASE_URL}${targetPath}${requestUrl.search}`;
 
-  // ── Construction des headers pour Supabase ────────────────────────
+  // ── Construction des headers pour Supabase ────────────────────────────────
   const upstreamHeaders = new Headers();
 
   // Copier les headers du client en filtrant les headers sensibles/CF
@@ -120,14 +124,15 @@ export async function handleProxy(
     }
   }
 
-  // Injecter les headers d'authentification Supabase
+  // Injecter l'authentification Supabase (jamais exposée au navigateur)
   upstreamHeaders.set('apikey', env.SUPABASE_ANON_KEY);
+  // sessionData.accessToken est accessible via { data: SessionData }
   upstreamHeaders.set(
     'Authorization',
     `Bearer ${sessionData.accessToken}`,
   );
 
-  // Assurer Content-Type pour les requêtes JSON
+  // Content-Type par défaut pour les requêtes JSON mutantes
   if (
     ['POST', 'PUT', 'PATCH'].includes(request.method) &&
     !upstreamHeaders.has('Content-Type')
@@ -135,27 +140,37 @@ export async function handleProxy(
     upstreamHeaders.set('Content-Type', 'application/json');
   }
 
-  // Préférence Supabase pour les réponses JSON (PostgREST)
+  // Préférences PostgREST — retourner la représentation complète après écriture
   if (!upstreamHeaders.has('Accept')) {
     upstreamHeaders.set('Accept', 'application/json');
   }
-  if (!upstreamHeaders.has('Prefer')) {
+  if (targetBase === 'api' && !upstreamHeaders.has('Prefer')) {
     upstreamHeaders.set('Prefer', 'return=representation');
   }
 
-  // ── Appel Supabase ────────────────────────────────────────────────
+  // ── Corps de la requête ───────────────────────────────────────────────────
+  // GET et HEAD n'ont pas de corps.
+  // Pour les autres méthodes, on transmet le body en stream.
+  // Le cast explicite vers BodyInit | null évite l'erreur de type CF Workers
+  // (ReadableStream<Uint8Array> | null n'est pas directement BodyInit).
+  const hasBody = !['GET', 'HEAD'].includes(request.method);
+  const requestBody: BodyInit | null = hasBody
+    ? (request.body as BodyInit | null)
+    : null;
+
+  // ── Appel Supabase ────────────────────────────────────────────────────────
   let supaResp: Response;
   try {
     supaResp = await fetch(targetUrl, {
       method: request.method,
       headers: upstreamHeaders,
-      body:
-        ['GET', 'HEAD'].includes(request.method)
-          ? undefined
-          : request.body,
-    });
+      body: requestBody,
+      // duplex requis pour le streaming body en Workers fetch
+      // (cast nécessaire car non typé dans @cloudflare/workers-types)
+      ...(hasBody && request.body ? { duplex: 'half' } : {}),
+    } as RequestInit);
   } catch (err) {
-    console.error('[BFF proxy] fetch error:', (err as Error).message);
+    console.error('[BFF proxy] Erreur fetch Supabase:', (err as Error).message);
     return jsonSecureResponse(
       env.ALLOWED_ORIGIN,
       { ok: false, error: 'Service Supabase temporairement indisponible' },
@@ -163,7 +178,7 @@ export async function handleProxy(
     );
   }
 
-  // ── Construction de la réponse vers le client ─────────────────────
+  // ── Construction de la réponse vers le client ─────────────────────────────
   const responseHeaders = new Headers();
 
   // Copier les headers Supabase en filtrant ceux à ne pas retransmettre
@@ -173,7 +188,7 @@ export async function handleProxy(
     }
   }
 
-  // Appliquer les headers de sécurité BFF
+  // Appliquer les headers de sécurité BFF par-dessus les headers Supabase
   const clientResponse = applySecurityHeaders(
     new Response(supaResp.body, {
       status: supaResp.status,
@@ -181,19 +196,9 @@ export async function handleProxy(
       headers: responseHeaders,
     }),
     env.ALLOWED_ORIGIN,
+    request.headers.get('Origin'),
+    env.ENVIRONMENT === 'production',
   );
 
   return clientResponse;
-}
-
-function extractCookie(cookieHeader: string, name: string): string | null {
-  const cookies = cookieHeader.split(';').map((c) => c.trim());
-  for (const cookie of cookies) {
-    const eqIdx = cookie.indexOf('=');
-    if (eqIdx === -1) continue;
-    const key = cookie.slice(0, eqIdx).trim();
-    const value = cookie.slice(eqIdx + 1).trim();
-    if (key === name) return value;
-  }
-  return null;
 }

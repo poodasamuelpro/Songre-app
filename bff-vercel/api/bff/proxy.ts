@@ -151,7 +151,7 @@ export default async function handler(
     supaResp = await fetch(targetUrl, {
       method: req.method ?? 'GET',
       headers: upstreamHeaders,
-      body: bodyContent,
+      body: bodyContent ?? null,
     });
   } catch (err) {
     console.error('[BFF-Vercel proxy] Supabase fetch error:', (err as Error).message);
