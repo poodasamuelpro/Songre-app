@@ -793,34 +793,35 @@ class SupabaseService {
 
   /// Charge le profil depuis le backend, déchiffre poids + CI.
   /// Nécessite la map des villes pour résoudre ville_nom.
+  ///
+  /// Retourne `null` uniquement si HTTP 200 avec liste vide (profil absent).
+  /// Lève une exception sur toute erreur HTTP (401, 403, 5xx…) ou réseau,
+  /// pour que _loadProfilAvecFallback() puisse retenter au lieu de supposer
+  /// que le profil est absent.
   static Future<ProfilDonneur?> lireProfil(
     String userId, {
     Map<int, String>? villesMap,
   }) async {
     if (!estConfigured) return null;
-    try {
-      final url = Uri.parse(
-        '$_supabaseUrl/rest/v1/profils_donneurs'
-        '?user_id=eq.$userId'
-        '&limit=1',
-      );
-      final resp = await _requeteAvecRefresh(
-        () => http.get(url, headers: _restHeaders(withAuth: true))
-            .timeout(const Duration(seconds: 10)),
-      );
-      if (resp.statusCode == 200) {
-        final list = jsonDecode(resp.body) as List;
-        if (list.isEmpty) return null;
-        final json = list[0] as Map<String, dynamic>;
-        final villeId = json['ville_id'] as int? ?? 0;
-        final villeNom = villesMap?[villeId] ?? '';
-        return ProfilDonneur.fromBase(json, villeNom: villeNom);
-      }
-      return null;
-    } catch (e) {
-      if (kDebugMode) debugPrint('[SupabaseService] lireProfil error: $e');
-      return null;
+    final url = Uri.parse(
+      '$_supabaseUrl/rest/v1/profils_donneurs'
+      '?user_id=eq.$userId'
+      '&limit=1',
+    );
+    final resp = await _requeteAvecRefresh(
+      () => http.get(url, headers: _restHeaders(withAuth: true))
+          .timeout(const Duration(seconds: 10)),
+    );
+    if (resp.statusCode == 200) {
+      final list = jsonDecode(resp.body) as List;
+      if (list.isEmpty) return null; // profil inexistant — ne pas retenter
+      final json = list[0] as Map<String, dynamic>;
+      final villeId = json['ville_id'] as int? ?? 0;
+      final villeNom = villesMap?[villeId] ?? '';
+      return ProfilDonneur.fromBase(json, villeNom: villeNom);
     }
+    // HTTP non-200 : lever une exception pour déclencher le retry
+    throw Exception('lireProfil HTTP ${resp.statusCode}');
   }
 
   // =====================================================================

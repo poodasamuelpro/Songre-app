@@ -43,9 +43,14 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <!-- flutter_deeplinking_enabled retiré : aucun deep link utilisé dans l'app.
-             Le flux de réinitialisation de mot de passe est entièrement par OTP
-             (code à 6 chiffres saisi dans l'app), sans intent-filter ni lien cliquable. -->
+        <!-- FCM : requis pour recevoir les messages en arrière-plan / app fermée -->
+        <service
+            android:name="com.google.firebase.messaging.FirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+            </intent-filter>
+        </service>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

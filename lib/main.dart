@@ -6,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'theme/sauve_theme.dart';
 import 'services/app_state.dart';
+import 'services/notification_service.dart';
 import 'responsive/breakpoints.dart';
 import 'router.dart';
 
@@ -21,6 +22,8 @@ void main() async {
     } catch (e) {
       if (kDebugMode) debugPrint('[main] Firebase init skipped: $e');
     }
+    // Canal Android (son + importance HIGH) — avant tout appel FCM
+    await NotificationService.initialiserCanal();
   }
 
   // Formats de dates en français

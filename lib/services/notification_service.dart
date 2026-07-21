@@ -1,6 +1,22 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'supabase_service.dart';
+
+// Canal Android — importance HIGH + son
+const _kChannelId   = 'songre_fcm';
+const _kChannelName = 'Notifications SONGRE';
+const _kChannelDesc = 'Alertes dons, réponses et rappels SONGRE';
+
+const _androidChannel = AndroidNotificationChannel(
+  _kChannelId, _kChannelName,
+  description: _kChannelDesc,
+  importance: Importance.high,
+  playSound: true,
+  enableVibration: true,
+);
+
+final _localNotif = FlutterLocalNotificationsPlugin();
 
 // =====================================================================
 // NOTIFICATION SERVICE — Gestion des tokens FCM pour SONGRE
@@ -24,10 +40,27 @@ import 'supabase_service.dart';
 // Edge Functions Supabase. Il ne doit jamais apparaître dans ce code.
 // =====================================================================
 
-/// Gestionnaire de tokens FCM.
-/// Doit être initialisé après une connexion réussie.
+/// Gestionnaire de tokens FCM + notifications locales.
 class NotificationService {
   NotificationService._();
+
+  /// Initialise le canal Android (son + importance HIGH).
+  /// Appeler UNE FOIS dans main(), après Firebase.initializeApp().
+  static Future<void> initialiserCanal() async {
+    if (kIsWeb) return;
+    try {
+      await _localNotif
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(_androidChannel);
+      const init = InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      );
+      await _localNotif.initialize(init);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[NotificationService] initialiserCanal: $e');
+    }
+  }
 
   /// Initialise FCM et enregistre le token dans public.device_tokens.
   /// Appeler après chaque connexion (connecter() ou restaurerSession()).
@@ -100,15 +133,26 @@ class NotificationService {
           _firebaseMessagingBackgroundHandler);
 
       // Configurer la réception des messages en premier plan
+      // → afficher une bannière locale avec son (FCM est silencieux en foreground)
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        if (kDebugMode) {
-          debugPrint(
-            '[NotificationService] Message reçu en premier plan: '
-            '${message.notification?.title}',
-          );
-        }
-        // L'UI se met à jour via _chargerNotificationsBackend() au prochain
-        // actualiserNotifications() ou retour de l'app en premier plan.
+        final notif = message.notification;
+        if (notif == null) return;
+        _localNotif.show(
+          DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          notif.title ?? 'SONGRE',
+          notif.body,
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              _kChannelId, _kChannelName,
+              channelDescription: _kChannelDesc,
+              importance: Importance.high,
+              priority: Priority.high,
+              playSound: true,
+              enableVibration: true,
+              icon: '@mipmap/ic_launcher',
+            ),
+          ),
+        );
       });
     } catch (e) {
       // Non bloquant — la connexion principale n'est pas affectée
