@@ -1225,7 +1225,25 @@ class _ProfilFormState extends State<_ProfilForm> {
       updatedAt: DateTime.now(),
     );
 
-    await state.sauvegarderProfil(profil);
+    // [Fix-RLS] Capturer le bool retourné — was: await state.sauvegarderProfil(profil);
+    final profilOk = await state.sauvegarderProfil(profil);
+    if (!profilOk && mounted) {
+      // L'écriture en base a échoué (403 RLS ou réseau).
+      // L'état local est valide pour cette session, mais avertir l'utilisateur
+      // que son profil pourrait ne pas être persisté durablement.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Profil enregistré localement. Une synchronisation sera tentée à la prochaine connexion.',
+            style: GoogleFonts.inter(fontSize: 13),
+          ),
+          backgroundColor: Colors.orange.shade700,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
 
     // [P7] Enregistrer le consentement dans public.consentements.
     // Appel fire-and-forget : une erreur réseau ici ne bloque pas la création

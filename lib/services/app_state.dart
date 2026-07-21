@@ -454,7 +454,19 @@ class AppState extends ChangeNotifier {
   // =====================================================================
   // PROFIL
   // =====================================================================
-  Future<void> sauvegarderProfil(ProfilDonneur profil) async {
+
+  /// Sauvegarde le profil localement (SharedPreferences) et en base (Supabase).
+  ///
+  /// Retourne `true` si l'écriture en base a réussi, `false` sinon.
+  /// En cas d'échec DB, le profil est quand même conservé en cache local
+  /// et l'état local est validé (l'utilisateur peut continuer à utiliser
+  /// l'app en mode dégradé), mais l'appelant doit informer l'utilisateur.
+  ///
+  /// CORRECTION [Fix-RLS] : le bool retourné par creerOuMettreAJourProfil()
+  /// était ignoré (await sans capture). En cas de 403 RLS ou d'erreur réseau,
+  /// la session locale était validée silencieusement. À la prochaine connexion
+  /// (cache purgé), lireProfil() retournait null → boucle /completer-profil.
+  Future<bool> sauvegarderProfil(ProfilDonneur profil) async {
     _profil = profil;
 
     // [Fix #3] Après inscription, _userId est défini mais _isAuthenticated=false.
@@ -468,10 +480,32 @@ class AppState extends ChangeNotifier {
       _isAuthenticated = true;
     }
 
+    // Écriture cache local (toujours — permet l'utilisation hors-ligne)
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyProfil, jsonEncode(profil.toJson()));
-    await SupabaseService.creerOuMettreAJourProfil(profil);
+
+    // [Fix-RLS] Capturer explicitement le résultat — NE PAS l'ignorer.
+    // Un false indique un échec DB (403 RLS absente, réseau, timeout…).
+    // L'état local reste valide pour la session courante, mais le profil
+    // ne sera pas persisté en base : la prochaine reconnexion renverra
+    // vers /completer-profil si le cache est purgé.
+    final ok = await SupabaseService.creerOuMettreAJourProfil(profil);
+    if (!ok) {
+      // Log explicite — visible en debug ET en release pour faciliter le
+      // diagnostic (contrairement aux logs kDebugMode-only de SupabaseService).
+      debugPrint(
+        '[AppState] sauvegarderProfil: ÉCHEC écriture en base '
+        '(userId=${profil.userId}) — profil en cache local uniquement. '
+        'Cause probable : RLS INSERT manquante ou perte réseau.',
+      );
+      // On NE remet PAS _profil=null ni _isAuthenticated=false :
+      // l'utilisateur peut utiliser l'app localement pour cette session.
+      // L'appelant (login_screen._valider, profil_screen) doit afficher
+      // un avertissement via le bool retourné.
+    }
+
     notifyListeners(); // GoRouter voit isAuth=true + hasProfil=true → redirige vers /home
+    return ok;
   }
 
   Future<void> toggleDisponibilite() async {
@@ -479,6 +513,9 @@ class AppState extends ChangeNotifier {
     final updated = _profil!.copyWith(disponible: !_profil!.disponible);
     await SupabaseService.mettreAJourDisponibilite(
         _userId!, updated.disponible);
+    // [Fix-RLS] Résultat ignoré intentionnellement ici : mettreAJourDisponibilite()
+    // a déjà écrit en base via PATCH. sauvegarderProfil() écrit le cache local.
+    // L'UI ne bloque pas sur l'échec de disponibilité.
     await sauvegarderProfil(updated);
   }
 

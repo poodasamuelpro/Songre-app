@@ -702,13 +702,22 @@ class SupabaseService {
             .timeout(const Duration(seconds: 10)),
       );
 
-      return resp.statusCode == 201 ||
+      final ok = resp.statusCode == 201 ||
           resp.statusCode == 200 ||
           resp.statusCode == 204;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[SupabaseService] creerOuMettreAJourProfil error: $e');
+
+      // [Fix-RLS] Logger explicitement tout code HTTP non-succès.
+      // Avant ce fix : les erreurs 403 (RLS), 422, 5xx passaient silencieusement
+      // en mode release — aucune trace, l'appelant recevait false sans contexte.
+      if (!ok) {
+        debugPrint(
+          '[SupabaseService] creerOuMettreAJourProfil ÉCHEC '
+          'HTTP ${resp.statusCode} — body: ${resp.body.length > 200 ? resp.body.substring(0, 200) : resp.body}',
+        );
       }
+      return ok;
+    } catch (e) {
+      debugPrint('[SupabaseService] creerOuMettreAJourProfil exception: $e');
       return false;
     }
   }

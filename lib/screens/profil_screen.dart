@@ -941,17 +941,20 @@ class ProfilScreen extends StatelessWidget {
                                 telephone: telSaisi.isEmpty ? null : telSaisi,
                                 effacerTelephone: telSaisi.isEmpty,
                               );
-                              await state.sauvegarderProfil(updated);
+                              // [Fix-RLS] Capturer le bool — was: await state.sauvegarderProfil(updated);
+                              final updateOk = await state.sauvegarderProfil(updated);
 
                               if (ctx.mounted) Navigator.pop(ctx);
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
-                                      'Profil mis à jour avec succès.',
+                                      updateOk
+                                          ? 'Profil mis à jour avec succès.'
+                                          : 'Profil modifié localement. Synchronisation en attente.',
                                       style: GoogleFonts.inter(fontSize: 13),
                                     ),
-                                    backgroundColor: SauveColors.vert,
+                                    backgroundColor: updateOk ? SauveColors.vert : Colors.orange.shade700,
                                     behavior: SnackBarBehavior.floating,
                                     shape: RoundedRectangleBorder(
                                         borderRadius:
