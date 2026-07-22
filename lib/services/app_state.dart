@@ -437,6 +437,10 @@ class AppState extends ChangeNotifier {
       // même si le serveur Supabase est inaccessible.
       if (kDebugMode) debugPrint('[AppState] seDeconnecter() erreur réseau: $e');
     }
+    // [Fix-FCM-LEAK] Libérer les subscriptions FCM à la déconnexion.
+    // Sans cet appel, onTokenRefresh et onMessage continuaient d'écouter
+    // sur l'ancien userId — fuite mémoire + réenregistrement avec mauvais userId.
+    await NotificationService.disposer();
     try {
       await _purgerSessionLocale();
     } catch (e) {
