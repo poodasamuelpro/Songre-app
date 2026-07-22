@@ -304,8 +304,27 @@ class ProfilDonneur {
 
   /// Sérialisation pour envoi en base — chiffre poids, CI et téléphone.
   /// NE PAS inclure ville_nom (pas de colonne en base).
+  ///
+  /// CORRECTION [Fix-POIDS-NULL] : Si CryptoService.chiffrer() retourne null
+  /// (clé SONGRE_ENCRYPT_KEY absente au build ou trop courte), la colonne
+  /// poids_chiffre (NOT NULL en base) recevrait null → erreur Postgres 23502.
+  /// On lève une StateError explicite AVANT l'appel réseau pour que l'appelant
+  /// (creerOuMettreAJourProfil) puisse catcher, logger et retourner false proprement.
+  /// L'utilisateur voit un SnackBar d'erreur au lieu d'une boucle silencieuse.
   Map<String, dynamic> toJsonPourBase() {
+    // poids est un entier obligatoire — poids.toString() ne peut pas être vide.
+    // Si chiffrer() retourne null c'est UNIQUEMENT parce que _key == null
+    // (SONGRE_ENCRYPT_KEY absente au build). C'est une erreur de configuration,
+    // pas une erreur métier : on lève une exception claire.
     final poidsChiffre = CryptoService.chiffrer(poids.toString());
+    if (poidsChiffre == null) {
+      throw StateError(
+        '[ProfilDonneur.toJsonPourBase] Impossible de chiffrer le poids : '
+        'CryptoService non initialisé. '
+        'Vérifiez que --dart-define=SONGRE_ENCRYPT_KEY=<32+ chars> '
+        'a bien été passé à la commande de build (make apk / flutter build apk).',
+      );
+    }
     final ciChiffre = CryptoService.chiffrerListe(
       contreIndications.isEmpty ? null : contreIndications,
     );
@@ -313,7 +332,7 @@ class ProfilDonneur {
     return {
       'user_id': userId,
       'groupe_sanguin': groupeSanguin.label,
-      'poids_chiffre': poidsChiffre,
+      'poids_chiffre': poidsChiffre,   // non-null garanti par le guard ci-dessus
       'genre': genre.value,
       'ville_id': villeId,
       'quartier': quartier,

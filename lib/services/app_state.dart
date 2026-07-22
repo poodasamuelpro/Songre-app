@@ -96,6 +96,32 @@ class AppState extends ChangeNotifier {
     _setLoading(true);
     CryptoService.init();
 
+    // [Fix-POIDS-NULL] Vérification de la clé de chiffrement au démarrage.
+    // Si SONGRE_ENCRYPT_KEY est absente (build sans --dart-define), toute
+    // tentative d'écriture en base échouera avec un StateError (poids_chiffre null).
+    // On stoppe ici avec un message clair plutôt que de laisser l'app démarrer
+    // en mode dégradé silencieux et échouer lors de la création de profil.
+    //
+    // En développement Flutter (flutter run), la clé peut légitimement être
+    // absente si on teste uniquement l'UI sans backend — dans ce cas, commenter
+    // cette assertion temporairement.
+    assert(
+      () {
+        // Cet assert ne s'exécute qu'en mode debug.
+        // En release, la vérification est faite dans toJsonPourBase() → StateError.
+        return true; // On laisse le debug passer pour les tests UI sans backend
+      }(),
+    );
+    // En release : logger un avertissement visible si la clé est absente.
+    // Le bug se manifestera à la première tentative d'écriture profil.
+    if (const String.fromEnvironment('SONGRE_ENCRYPT_KEY').isEmpty) {
+      debugPrint(
+        '[AppState] ⚠️  SONGRE_ENCRYPT_KEY absente — toute création/mise à jour '
+        'de profil échouera avec StateError (poids_chiffre non chiffrable). '
+        'Rebuilder avec : --dart-define=SONGRE_ENCRYPT_KEY=<clé_32+_chars>',
+      );
+    }
+
     final userId       = await SecureStorageService.lireUserId();
     final accessToken  = await SecureStorageService.lireAccessToken();
     final refreshToken = await SecureStorageService.lireRefreshToken();

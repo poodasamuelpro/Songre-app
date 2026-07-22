@@ -1225,22 +1225,30 @@ class _ProfilFormState extends State<_ProfilForm> {
       updatedAt: DateTime.now(),
     );
 
-    // [Fix-RLS] Capturer le bool retourné — was: await state.sauvegarderProfil(profil);
+    // [Fix-RLS + Fix-POIDS-NULL] Capturer le bool retourné.
+    // false = échec DB (RLS absente, erreur réseau, ou config build incorrecte).
+    // Dans tous les cas : profil en cache local, session locale valide pour
+    // cette session. L'utilisateur est averti sans bloquer la navigation.
     final profilOk = await state.sauvegarderProfil(profil);
     if (!profilOk && mounted) {
-      // L'écriture en base a échoué (403 RLS ou réseau).
-      // L'état local est valide pour cette session, mais avertir l'utilisateur
-      // que son profil pourrait ne pas être persisté durablement.
+      // Distinguer erreur de config (SONGRE_ENCRYPT_KEY absente) vs erreur réseau
+      final encryptKeyPresente =
+          const String.fromEnvironment('SONGRE_ENCRYPT_KEY').isNotEmpty;
+      final msgEchec = encryptKeyPresente
+          ? 'Profil enregistré localement. Vérifiez votre connexion — une synchronisation sera tentée à la reconnexion.'
+          : 'Erreur de configuration (clé de chiffrement absente). Contactez le support.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Profil enregistré localement. Une synchronisation sera tentée à la prochaine connexion.',
+            msgEchec,
             style: GoogleFonts.inter(fontSize: 13),
           ),
-          backgroundColor: Colors.orange.shade700,
+          backgroundColor: encryptKeyPresente
+              ? Colors.orange.shade700
+              : Colors.red.shade700,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          duration: const Duration(seconds: 5),
+          duration: const Duration(seconds: 6),
         ),
       );
     }

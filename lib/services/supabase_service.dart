@@ -692,8 +692,34 @@ class SupabaseService {
       ..._restHeaders(withAuth: true),
       'Prefer': 'return=minimal,resolution=merge-duplicates',
     };
-    // Utiliser toJsonPourBase() qui chiffre poids + CI et envoie ville_id (int)
-    final body = jsonEncode(profil.toJsonPourBase());
+
+    // [Fix-POIDS-NULL] toJsonPourBase() peut maintenant lever un StateError
+    // si SONGRE_ENCRYPT_KEY est absente (clé de chiffrement non injectée au build).
+    // On catche explicitement AVANT le try réseau pour distinguer :
+    //   - StateError (config build incorrecte) → log erreur critique + false
+    //   - Exception réseau (timeout, 4xx, 5xx) → log + false
+    // Ancienne version : toJsonPourBase() était appelé HORS du try/catch →
+    // le StateError se propageait non catchée jusqu'à l'appelant, qui loggait
+    // "exception" sans contexte. Désormais chaque cas a son propre message.
+    final String body;
+    try {
+      body = jsonEncode(profil.toJsonPourBase());
+    } on StateError catch (e) {
+      // Erreur de configuration : SONGRE_ENCRYPT_KEY absente au build.
+      // C'est une erreur fatale pour cette opération — retourner false proprement.
+      debugPrint(
+        '[SupabaseService] creerOuMettreAJourProfil ERREUR CONFIG — '
+        'chiffrement impossible : $e\n'
+        'ACTION REQUISE : rebuilder l\'APK avec '
+        '--dart-define=SONGRE_ENCRYPT_KEY=<clé_32+_chars>',
+      );
+      return false;
+    } catch (e) {
+      debugPrint(
+        '[SupabaseService] creerOuMettreAJourProfil ERREUR sérialisation: $e',
+      );
+      return false;
+    }
 
     try {
       final url = Uri.parse('$_supabaseUrl/rest/v1/profils_donneurs');
@@ -717,7 +743,7 @@ class SupabaseService {
       }
       return ok;
     } catch (e) {
-      debugPrint('[SupabaseService] creerOuMettreAJourProfil exception: $e');
+      debugPrint('[SupabaseService] creerOuMettreAJourProfil exception réseau: $e');
       return false;
     }
   }
@@ -1433,7 +1459,19 @@ class SupabaseService {
   // =====================================================================
 
   /// Enregistre (ou met à jour) le token FCM de l'appareil courant.
-  /// Utilise upsert sur fcm_token (unique) pour éviter les doublons.
+  ///
+  /// [Fix-FCM-UPSERT] Correction du conflit 409 lors de la réinsertion d'un
+  /// token FCM déjà existant.
+  ///
+  /// AVANT : `Prefer: resolution=merge-duplicates` sans paramètre `on_conflict`
+  /// → PostgREST tentait le merge-duplicate sur la PK (`id`, auto-incrémentée)
+  /// → la contrainte unique violée étant `fcm_token`, le conflit ne matchait
+  /// jamais la clause ON CONFLICT → Postgres rejetait avec erreur 23505 (409).
+  ///
+  /// APRÈS : `on_conflict=fcm_token` dans l'URL
+  /// → PostgREST génère `INSERT ... ON CONFLICT (fcm_token) DO UPDATE ...`
+  /// → la contrainte unique `device_tokens_fcm_token_key` est correctement ciblée
+  /// → upsert propre, 0 doublon, 0 409.
   static Future<bool> enregistrerFcmToken({
     required String userId,
     required String fcmToken,
@@ -1441,9 +1479,14 @@ class SupabaseService {
   }) async {
     if (!estConfigured || _accessToken == null) return false;
     try {
-      final url = Uri.parse('$_supabaseUrl/rest/v1/device_tokens');
+      // [Fix-FCM-UPSERT] Paramètre on_conflict=fcm_token obligatoire pour que
+      // PostgREST cible la bonne contrainte unique (et non la PK `id`).
+      final url = Uri.parse(
+        '$_supabaseUrl/rest/v1/device_tokens?on_conflict=fcm_token',
+      );
       final hdrs = {
         ..._restHeaders(withAuth: true),
+        // resolution=merge-duplicates + on_conflict=fcm_token → upsert correct
         'Prefer': 'return=minimal,resolution=merge-duplicates',
       };
       final body = jsonEncode({
@@ -1455,13 +1498,19 @@ class SupabaseService {
         () => http.post(url, headers: hdrs, body: body)
             .timeout(const Duration(seconds: 10)),
       );
-      return resp.statusCode == 201 ||
+      final ok = resp.statusCode == 201 ||
           resp.statusCode == 200 ||
           resp.statusCode == 204;
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[SupabaseService] enregistrerFcmToken error: $e');
+      if (!ok) {
+        // [Fix-FCM-UPSERT] Logger les échecs pour diagnostic futur
+        debugPrint(
+          '[SupabaseService] enregistrerFcmToken ÉCHEC '
+          'HTTP ${resp.statusCode} — body: ${resp.body.length > 200 ? resp.body.substring(0, 200) : resp.body}',
+        );
       }
+      return ok;
+    } catch (e) {
+      debugPrint('[SupabaseService] enregistrerFcmToken error: $e');
       return false;
     }
   }

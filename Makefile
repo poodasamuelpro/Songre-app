@@ -19,6 +19,27 @@
 # Build APK release avec vérification pre-build obligatoire
 apk:
 	@echo "🚀 Build APK release SONGRE..."
+	@# [Fix-POIDS-NULL] Guard explicite : SONGRE_ENCRYPT_KEY DOIT être définie.
+	@# Sans cette clé, poids_chiffre sera null en base → erreur Postgres 23502 systématique.
+	@# Exporter la variable avant d'appeler make : export SONGRE_ENCRYPT_KEY="<clé>" && make apk
+	@if [ -z "$$SONGRE_ENCRYPT_KEY" ]; then \
+		echo ""; \
+		echo "❌ ERREUR CRITIQUE : SONGRE_ENCRYPT_KEY n'est pas définie !"; \
+		echo ""; \
+		echo "   Sans cette clé, poids_chiffre sera null dans chaque INSERT profil_donneurs"; \
+		echo "   → Postgres rejette avec 23502 (not-null constraint) → boucle /completer-profil."; \
+		echo ""; \
+		echo "   SOLUTION : Exporter la clé avant le build :"; \
+		echo "     export SONGRE_ENCRYPT_KEY=\"<valeur_32+_chars_depuis_SECRETS_PROJET>\""; \
+		echo "     make apk"; \
+		echo ""; \
+		exit 1; \
+	fi
+	@if [ $${#SONGRE_ENCRYPT_KEY} -lt 32 ]; then \
+		echo "❌ ERREUR : SONGRE_ENCRYPT_KEY trop courte ($${#SONGRE_ENCRYPT_KEY} chars, minimum 32)."; \
+		exit 1; \
+	fi
+	@echo "✅ SONGRE_ENCRYPT_KEY présente ($${#SONGRE_ENCRYPT_KEY} chars)"
 	@cd $(shell pwd) && bash scripts/pre_build_check.sh
 	flutter build apk --release \
 		--dart-define=SONGRE_ENCRYPT_KEY=$$SONGRE_ENCRYPT_KEY \
